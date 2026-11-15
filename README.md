@@ -70,3 +70,29 @@ Menambah provider baru: tambah nilai enum `GatewayProvider`, adapter di `src/lib
 ## Ganti ke Payterra
 Setelah API merchant tersedia: `BILLER_PROVIDER=payterra` + `PAYTERRA_*` di `.env`,
 sesuaikan `src/lib/biller/payterra.ts` dengan kontrak final, lalu Sync Produk di admin.
+
+## Deploy ke Vercel + Supabase
+
+1. **Supabase**: buat project, lalu buat bucket Storage **public** bernama `uploads` (gambar upload admin).
+2. **Env di Vercel** (Project → Settings → Environment Variables):
+
+   | Variable | Isi |
+   |---|---|
+   | `DATABASE_URL` | Connection string *Transaction pooler* (port 6543) + `?pgbouncer=true&connection_limit=1` |
+   | `DIRECT_URL` | Connection string *Session/Direct* (port 5432) — dipakai `prisma migrate` |
+   | `AUTH_SECRET` | `openssl rand -base64 48` |
+   | `APP_URL` | URL publik, mis. `https://topup-web.vercel.app` (canonical, sitemap, callback) |
+   | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Project Settings → API (service role key = rahasia, server-only) |
+   | `BILLER_PROVIDER` | `mock` (atau `payterra`) |
+   | `ALLOW_MOCK_PAYMENT` | `true` hanya untuk demo — tanpa ini tombol "simulasi bayar" mati di produksi |
+
+3. **Skema & data awal** (dari laptop, sekali):
+   ```bash
+   DATABASE_URL="<direct 5432>" DIRECT_URL="<direct 5432>" npx prisma migrate deploy
+   DATABASE_URL="<direct 5432>" DIRECT_URL="<direct 5432>" SEED_ADMIN_PASSWORD="<password admin>" npm run db:seed
+   ```
+4. Import repo di Vercel → Deploy. Setiap push ke `main` otomatis deploy ulang.
+
+## Lisensi
+
+[MIT](./LICENSE)
