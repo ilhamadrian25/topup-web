@@ -1,26 +1,84 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f3f4f6;
+  --border: #e5e7eb;
+  --text: #111827;
+  --muted: #6b7280;
+  --accent: #f97316;
+  --accent-ink: #ffffff;
+  --accent-2: #7c3aed;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #d97706;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-2: var(--accent-2);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@utility card {
+  @apply rounded-2xl border border-line bg-surface shadow-[0_1px_2px_rgba(16,24,40,0.04)];
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-accent text-accent-ink shadow-sm shadow-accent/30 hover:brightness-105;
+}
+@utility btn-ghost {
+  @apply btn border border-line bg-surface text-fg hover:border-muted hover:bg-surface-2;
+}
+@utility btn-danger {
+  @apply btn bg-danger text-white hover:brightness-110;
+}
+@utility input {
+  @apply w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/15;
+}
+@utility label {
+  @apply mb-1.5 block text-xs font-medium text-muted;
+}
+@utility step-badge {
+  @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-bold text-accent-ink;
+}
+@utility table {
+  @apply w-full text-left text-sm;
+  & th {
+    @apply border-b border-line px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted;
+  }
+  & td {
+    @apply border-b border-line/60 px-3 py-2.5 align-top;
+  }
+}
+
+@utility section-head {
+  @apply flex items-center gap-3 border-b border-line bg-surface-2/60 pr-4 text-sm font-bold;
+}
+@utility section-num {
+  @apply flex h-11 w-11 shrink-0 items-center justify-center bg-accent text-base font-extrabold text-white;
 }

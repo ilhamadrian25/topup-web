@@ -1,0 +1,237 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Koneksi langsung (bukan pooler) untuk migrate. Lokal: sama dengan DATABASE_URL.
+  // Supabase: DATABASE_URL = pooler :6543 (?pgbouncer=true), DIRECT_URL = :5432.
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  MEMBER
+  ADMIN
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  EXPIRED
+  FAILED
+}
+
+enum FulfillmentStatus {
+  WAITING // menunggu pembayaran
+  PROCESSING // sudah dikirim ke biller, menunggu hasil
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+/// Provider payment gateway yang didukung kode. Instance & kredensialnya diatur di DB (PaymentGateway).
+enum GatewayProvider {
+  MOCK
+  IPAYMU
+}
+
+enum PaymentGroup {
+  QRIS
+  VIRTUAL_ACCOUNT
+  EWALLET
+  RETAIL
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         Role     @default(MEMBER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  orders       Order[]
+}
+
+model Category {
+  id        String @id @default(cuid())
+  slug      String @unique
+  name      String
+  sortOrder Int    @default(0)
+  games     Game[]
+}
+
+/// Satu "brand" yang bisa di-top up (game, voucher, dsb).
+model Game {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  name            String
+  publisher       String?
+  description     String?
+  imageUrl        String?
+  bannerUrl       String?
+  categoryId      String
+  category        Category  @relation(fields: [categoryId], references: [id])
+  /// Kode brand di sisi biller (Payterra), dipakai untuk sync produk.
+  billerBrandCode String    @unique
+  /// [{ key: "userId", label: "User ID", placeholder?: string }]
+  inputFields     Json
+  /// Petunjuk cara menemukan ID akun.
+  inputHint       String?
+  nicknameCheck   Boolean   @default(false)
+  /// Override judul & meta description SEO (kosong = otomatis).
+  seoTitle        String?
+  seoDescription  String?
+  isActive        Boolean   @default(true)
+  isPopular       Boolean   @default(false)
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  products        Product[]
+  orders          Order[]
+}
+
+model Product {
+  id                String   @id @default(cuid())
+  gameId            String
+  game              Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  name              String
+  billerProductCode String   @unique
+  /// Harga modal dari biller (diperbarui saat sync).
+  basePrice         Int
+  /// Harga jual publik.
+  price             Int
+  /// Harga khusus member login (null = sama dengan price).
+  memberPrice       Int?
+  /// Status ketersediaan dari biller.
+  billerAvailable   Boolean  @default(true)
+  isActive          Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  orders            Order[]
+
+  @@index([gameId, isActive])
+}
+
+/// Akun payment gateway. Bisa lebih dari satu (mis. iPaymu sandbox & produksi);
+/// tiap PaymentMethod memilih gateway mana yang memprosesnya.
+model PaymentGateway {
+  id        String          @id @default(cuid())
+  /// Dipakai di URL callback: /api/payments/callback/{code}
+  code      String          @unique
+  name      String
+  provider  GatewayProvider
+  isSandbox Boolean         @default(true)
+  isActive  Boolean         @default(true)
+  /// Konfigurasi non-rahasia, mis. { va, defaultEmail }.
+  config    Json            @default("{}")
+  /// Kredensial terenkripsi AES-256-GCM (lihat lib/secrets.ts).
+  secrets   String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  methods   PaymentMethod[]
+  orders    Order[]
+}
+
+model PaymentMethod {
+  id             String          @id @default(cuid())
+  gatewayId      String?
+  gateway        PaymentGateway? @relation(fields: [gatewayId], references: [id])
+  /// Kode metode/channel di sisi gateway (iPaymu: paymentMethod "va"/"qris"/"cstore"/"redirect", channel "bca"/"mpm"/...).
+  gatewayMethod  String?
+  gatewayChannel String?
+  code           String          @unique
+  name           String
+  group          PaymentGroup
+  feeFlat        Int             @default(0)
+  /// Basis poin (100 = 1%).
+  feeBps         Int             @default(0)
+  minAmount      Int             @default(0)
+  maxAmount      Int?
+  imageUrl       String?
+  isActive       Boolean         @default(true)
+  sortOrder      Int             @default(0)
+  orders         Order[]
+}
+
+model Banner {
+  id        String   @id @default(cuid())
+  title     String
+  subtitle  String?
+  imageUrl  String?
+  linkUrl   String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id                String            @id @default(cuid())
+  invoice           String            @unique
+  userId            String?
+  user              User?             @relation(fields: [userId], references: [id])
+  gameId            String
+  game              Game              @relation(fields: [gameId], references: [id])
+  productId         String
+  product           Product           @relation(fields: [productId], references: [id])
+  productName       String
+  /// Nilai input akun, mis. { userId: "123", zoneId: "4567" }.
+  accountData       Json
+  nickname          String?
+  contactPhone      String
+  contactEmail      String?
+  price             Int
+  fee               Int
+  total             Int
+  /// Harga modal saat order dibuat (untuk laporan margin).
+  basePrice         Int
+  paymentMethodId   String
+  paymentMethod     PaymentMethod     @relation(fields: [paymentMethodId], references: [id])
+  paymentStatus     PaymentStatus     @default(UNPAID)
+  /// Gateway yang menerbitkan tagihan (disalin dari metode saat order dibuat).
+  paymentGatewayId  String?
+  paymentGateway    PaymentGateway?   @relation(fields: [paymentGatewayId], references: [id])
+  /// ID transaksi di gateway (iPaymu TransactionId).
+  paymentRef        String?
+  /// Instruksi bayar: { type: "qris", qrString } | { type: "va", bank, vaNumber } | { type: "redirect", url }
+  paymentData       Json?
+  expiresAt         DateTime
+  paidAt            DateTime?
+  fulfillmentStatus FulfillmentStatus @default(WAITING)
+  /// Jumlah percobaan kirim ke biller; refId biller = `${invoice}-${fulfillAttempts}`.
+  fulfillAttempts   Int               @default(0)
+  billerRefId       String?           @unique
+  billerRef         String?
+  billerSn          String?
+  billerMessage     String?
+  fulfilledAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  events            OrderEvent[]
+
+  @@index([userId, createdAt])
+  @@index([paymentStatus, fulfillmentStatus])
+  @@index([createdAt])
+  @@index([paymentGatewayId, paymentRef])
+}
+
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+/// Key-value pengaturan toko (nama toko, margin default, dsb).
+model Setting {
+  key   String @id
+  value Json
+}
