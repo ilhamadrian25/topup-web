@@ -1,4 +1,8 @@
-/** Logo toko: lencana petir oranye + wordmark. */
+/** Path huruf "T" Topupin yang batangnya berbentuk petir (viewBox 40×40). Sama dengan src/app/icon.svg. */
+const T_BOLT =
+  "M9.5 9.5h21a2 2 0 0 1 2 2v2.6a2 2 0 0 1-2 2H24.3L21.6 22h5.2a1 1 0 0 1 .8 1.6L16.4 35.2c-.6.7-1.7.1-1.4-.8l2.6-8.6h-3.9a1 1 0 0 1-.9-1.4L15.9 16.1H9.5a2 2 0 0 1-2-2v-2.6a2 2 0 0 1 2-2z";
+
+/** Logo bawaan: lencana oranye dengan "T" petir. Diganti logo upload dari Admin → Pengaturan bila diisi. */
 export function LogoMark({ className = "h-9 w-9" }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 40" className={className} aria-hidden>
@@ -9,20 +13,31 @@ export function LogoMark({ className = "h-9 w-9" }: { className?: string }) {
         </linearGradient>
       </defs>
       <rect width="40" height="40" rx="11" fill="url(#lg-bg)" />
-      <path d="M22.5 6 11 22.5h7.5L16.5 34 29 17h-7.6z" fill="#fff" />
+      <path d={T_BOLT} fill="#fff" />
     </svg>
   );
 }
 
+/**
+ * Pisah nama jadi [utama, aksen] untuk wordmark dua warna:
+ * "Topupin" → "Topup" + "in" (tanpa spasi); "Payterra Top Up" → "Payterra" + " Top Up".
+ */
+function splitWordmark(name: string): [string, string] {
+  const m = name.match(/^(top\s?up)(\S.*)$/i);
+  if (m) return [m[1], m[2]];
+  const i = name.indexOf(" ");
+  return i < 0 ? [name, ""] : [name.slice(0, i), name.slice(i)];
+}
+
 /* eslint-disable @next/next/no-img-element */
 export function Logo({ name, logoUrl, className = "" }: { name: string; logoUrl?: string | null; className?: string }) {
-  const [first, ...rest] = name.split(" ");
+  const [first, accent] = splitWordmark(name);
   return (
     <span className={`flex items-center gap-2 ${className}`}>
       {logoUrl ? <img src={logoUrl} alt={name} className="h-9 w-9 rounded-xl object-contain" /> : <LogoMark />}
-      <span className="hidden text-lg leading-none font-black tracking-tight uppercase italic sm:inline">
+      <span className="hidden text-lg leading-none font-black tracking-tight whitespace-pre uppercase italic sm:inline">
         {first}
-        {rest.length > 0 && <span className="text-accent"> {rest.join(" ")}</span>}
+        {accent && <span className="text-accent">{accent}</span>}
       </span>
     </span>
   );
