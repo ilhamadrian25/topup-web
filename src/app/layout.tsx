@@ -88,7 +88,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </div>
           <div className="border-t border-line py-5 text-center text-xs text-muted">
-            © {year} {settings.storeName}. Diproses otomatis oleh Payterra.
+            © {year} {settings.businessName || settings.storeName}. Semua hak dilindungi.
           </div>
         </footer>
       </body>

@@ -145,7 +145,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ q
         <section className="mt-12 grid gap-3 sm:grid-cols-3">
           {([
             [Zap, "Proses Instan", "Pesanan diproses otomatis begitu pembayaran diterima, 24 jam."],
-            [ShieldCheck, "Aman & Resmi", "Produk langsung dari supplier resmi melalui Payterra."],
+            [ShieldCheck, "Aman & Resmi", "Produk langsung dari supplier resmi, tanpa perlu password akun."],
             [BadgePercent, "Harga Bersaing", "Harga transparan, lebih murah lagi untuk member."],
           ] as const).map(([Icon, t, d]) => (
             <div key={t} className="card flex gap-3 p-4">

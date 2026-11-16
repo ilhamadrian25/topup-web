@@ -19,7 +19,7 @@ export type StoreSettings = {
 };
 
 const DEFAULTS: StoreSettings = {
-  storeName: "Payterra Top Up",
+  storeName: "Topupin",
   logoUrl: "",
   tagline: "Top up game & voucher murah, cepat, otomatis 24 jam",
   defaultMarginBps: 500,
