@@ -120,6 +120,15 @@ async function main() {
       ],
     });
   }
+  // Gambar bawaan banner; hanya mengisi yang belum diberi gambar dari admin.
+  const BANNER_IMAGE: Record<string, string> = {
+    "Top up instan 24/7": "/banners/topup-instan.webp",
+    "Harga member lebih murah": "/banners/harga-member.webp",
+    "Bayar pakai QRIS": "/banners/bayar-qris.webp",
+  };
+  for (const [title, imageUrl] of Object.entries(BANNER_IMAGE)) {
+    await db.banner.updateMany({ where: { title, imageUrl: null }, data: { imageUrl } });
+  }
 
   const email = process.env.SEED_ADMIN_EMAIL ?? "admin@topup.local";
   const pw = process.env.SEED_ADMIN_PASSWORD ?? "admin12345";
