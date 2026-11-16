@@ -57,6 +57,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <li><Link href="/" className="hover:text-accent">Beranda</Link></li>
                 <li><Link href="/cek-transaksi" className="hover:text-accent">Cek Transaksi</Link></li>
                 <li><Link href="/register" className="hover:text-accent">Daftar Member</Link></li>
+                <li><Link href="/faq" className="hover:text-accent">FAQ</Link></li>
+                <li><Link href="/terms" className="hover:text-accent">Syarat &amp; Ketentuan</Link></li>
+                <li><Link href="/refund-policy" className="hover:text-accent">Kebijakan Refund</Link></li>
               </ul>
             </div>
             <div>
@@ -67,6 +70,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 ) : (
                   <li>Layanan 24 jam</li>
                 )}
+                {settings.contactEmail && (
+                  <li><a href={`mailto:${settings.contactEmail}`} className="break-all hover:text-accent">{settings.contactEmail}</a></li>
+                )}
+                {settings.contactPhone && <li>{settings.contactPhone}</li>}
+                <li><Link href="/contact" className="hover:text-accent">Kontak &amp; Alamat</Link></li>
                 <li><Link href="/cek-transaksi" className="hover:text-accent">Status Pesanan</Link></li>
               </ul>
             </div>

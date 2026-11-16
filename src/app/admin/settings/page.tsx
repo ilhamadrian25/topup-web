@@ -31,6 +31,14 @@ export default async function AdminSettings({ searchParams }: { searchParams: Fl
         <div><label className="label">Nama toko</label><input name="storeName" defaultValue={s.storeName} className="input" /></div>
         <div><label className="label">WhatsApp CS</label><input name="whatsappCs" defaultValue={s.whatsappCs} className="input" placeholder="628…" /></div>
         <div className="sm:col-span-2"><label className="label">Tagline</label><input name="tagline" defaultValue={s.tagline} className="input" /></div>
+        <h2 className="font-bold sm:col-span-2 mt-2">Kontak usaha</h2>
+        <p className="-mt-2 text-xs text-muted sm:col-span-2">
+          Tampil di halaman Kontak, footer, Syarat &amp; Ketentuan dan Kebijakan Refund — wajib untuk verifikasi merchant payment gateway.
+        </p>
+        <div><label className="label">Email kontak</label><input name="contactEmail" type="email" defaultValue={s.contactEmail} className="input" placeholder="support@domain.com" /></div>
+        <div><label className="label">Telepon kontak</label><input name="contactPhone" defaultValue={s.contactPhone} className="input" placeholder="0812…" /></div>
+        <div className="sm:col-span-2"><label className="label">Nama usaha / badan hukum</label><input name="businessName" defaultValue={s.businessName} className="input" placeholder={`Kosong = ${s.storeName}`} /></div>
+        <div className="sm:col-span-2"><label className="label">Alamat usaha</label><textarea name="businessAddress" defaultValue={s.businessAddress} rows={3} className="input" placeholder="Jalan, kota, provinsi, kode pos" /></div>
         <div>
           <label className="label">Margin default produk baru (bps)</label>
           <input name="defaultMarginBps" type="number" defaultValue={s.defaultMarginBps} className="input" />

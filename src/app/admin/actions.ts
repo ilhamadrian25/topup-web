@@ -83,6 +83,10 @@ export async function settingsAction(fd: FormData) {
     storeName: str(fd, "storeName") || "Top Up",
     tagline: str(fd, "tagline"),
     whatsappCs: str(fd, "whatsappCs"),
+    contactEmail: str(fd, "contactEmail"),
+    contactPhone: str(fd, "contactPhone"),
+    businessName: str(fd, "businessName"),
+    businessAddress: str(fd, "businessAddress"),
     defaultMarginBps: Math.max(0, int(fd, "defaultMarginBps") ?? 0),
     memberDiscountBps: Math.max(0, int(fd, "memberDiscountBps") ?? 0),
   });

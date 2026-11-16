@@ -10,6 +10,12 @@ export type StoreSettings = {
   /** Diskon member dari harga jual (basis poin). 0 = tanpa harga member. */
   memberDiscountBps: number;
   whatsappCs: string;
+  /** Kontak usaha — ditampilkan di /contact, footer, S&K (syarat verifikasi payment gateway). */
+  contactEmail: string;
+  contactPhone: string;
+  /** Nama usaha/badan hukum pengelola toko (kosong = pakai storeName). */
+  businessName: string;
+  businessAddress: string;
 };
 
 const DEFAULTS: StoreSettings = {
@@ -19,6 +25,10 @@ const DEFAULTS: StoreSettings = {
   defaultMarginBps: 500,
   memberDiscountBps: 100,
   whatsappCs: "",
+  contactEmail: "",
+  contactPhone: "",
+  businessName: "",
+  businessAddress: "",
 };
 
 export async function getSettings(): Promise<StoreSettings> {
