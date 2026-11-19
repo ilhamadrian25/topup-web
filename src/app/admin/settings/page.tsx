@@ -1,5 +1,6 @@
 import { getSettings } from "@/lib/settings";
-import { biller } from "@/lib/biller";
+import Link from "next/link";
+import { activeBiller, billerLabel } from "@/lib/biller";
 import { db } from "@/lib/db";
 import { applyMargin, categoryMargin } from "@/lib/settings";
 import { repriceCategoryAction, saveCategoryMarginsAction, settingsAction, syncAction } from "../actions";
@@ -11,7 +12,7 @@ export default async function AdminSettings({ searchParams }: { searchParams: Fl
     getSettings(),
     db.category.findMany({ orderBy: { sortOrder: "asc" }, include: { _count: { select: { games: true } } } }),
   ]);
-  const b = biller();
+  const b = await activeBiller();
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold">Pengaturan & Sync</h1>
@@ -20,8 +21,8 @@ export default async function AdminSettings({ searchParams }: { searchParams: Fl
       <section className="card p-4">
         <h2 className="font-bold">Sync produk dari biller</h2>
         <p className="mt-1 text-sm text-muted">
-          Biller aktif: <b className="font-mono">{b.name}</b>
-          {b.name === "mock" && " (mock — API merchant Payterra belum tersedia)"}. Sync menarik semua produk, mencocokkan
+          Biller aktif: <b>{billerLabel(b)}</b> (atur di{" "}
+          <Link href="/admin/billers" className="text-accent hover:underline">menu Biller</Link>). Sync menarik semua produk, mencocokkan
           ke game lewat kode brand, memperbarui modal & ketersediaan. Harga jual yang sudah diatur tidak diubah kecuali
           modal naik melewati harga jual.
         </p>

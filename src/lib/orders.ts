@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "./db";
-import { biller, type BillerTxResult } from "./biller";
+import { activeBiller, billerForOrder, type BillerTxResult } from "./biller";
 import { gatewayAdapter } from "./payment";
 import { siteUrl } from "./seo";
 import { normalizePhone } from "./format";
@@ -79,7 +79,7 @@ export async function createOrder(input: {
   // Nickname selalu dicek ulang di server; jangan percaya nilai dari client.
   let nickname: string | null = null;
   if (game.nicknameCheck) {
-    const r = await biller().checkAccount({ brandCode: game.billerBrandCode, account });
+    const r = await (await activeBiller()).adapter.checkAccount({ brandCode: game.billerBrandCode, account });
     if (!r.ok) throw new OrderError(r.message);
     nickname = r.nickname;
   }
@@ -204,10 +204,13 @@ export async function fulfillOrder(orderId: string) {
 
   const order = await db.order.findUniqueOrThrow({ where: { id: orderId }, include: { product: true } });
   const refId = `${order.invoice}-${order.fulfillAttempts}`;
-  await db.order.update({ where: { id: orderId }, data: { billerRefId: refId } });
+  // Catat biller yang dipakai percobaan ini: status & webhook-nya selalu dicek ke biller yang sama,
+  // walau biller aktif diganti di tengah jalan.
+  const { account, adapter } = await activeBiller();
+  await db.order.update({ where: { id: orderId }, data: { billerRefId: refId, billerAccountId: account?.id ?? null } });
 
   try {
-    const r = await biller().purchase({
+    const r = await adapter.purchase({
       refId,
       productCode: order.product.billerProductCode,
       account: order.accountData as Record<string, string>,
@@ -272,7 +275,7 @@ export async function refreshOrder(invoice: string) {
     Date.now() - order.updatedAt.getTime() > STATUS_POLL_MS
   ) {
     try {
-      const r = await biller().checkStatus({ refId: order.billerRefId });
+      const r = await (await billerForOrder(order)).adapter.checkStatus({ refId: order.billerRefId });
       await applyBillerResult(order.id, r);
       // Sentuh updatedAt supaya throttle polling berlaku.
       if (r.status === "PENDING") await db.order.update({ where: { id: order.id }, data: { updatedAt: new Date() } });

@@ -5,12 +5,12 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
-import { biller } from "@/lib/biller";
+import { activeBiller, billerAdapter, BILLER_PROVIDERS } from "@/lib/biller";
 import { syncProducts } from "@/lib/catalog";
 import { markOrderPaid, markRefunded, retryFulfillment, syncGatewayPayment, OrderError } from "@/lib/orders";
 import { gatewayAdapter, PROVIDERS } from "@/lib/payment";
 import { decryptJson, encryptJson } from "@/lib/secrets";
-import type { GatewayProvider, PaymentGroup } from "@prisma/client";
+import type { BillerProvider, GatewayProvider, PaymentGroup } from "@prisma/client";
 import { applyMargin, categoryMargin, getSettings, memberPriceFor, saveSettings } from "@/lib/settings";
 import type { InputField } from "@/lib/types";
 import { imageFromForm, UploadError } from "@/lib/storage";
@@ -65,7 +65,7 @@ export async function syncAction() {
   const s = await getSettings();
   let msg: string;
   try {
-    const r = await syncProducts(db, biller(), { marginBps: s.defaultMarginBps, memberDiscountBps: s.memberDiscountBps });
+    const r = await syncProducts(db, (await activeBiller()).adapter, { marginBps: s.defaultMarginBps, memberDiscountBps: s.memberDiscountBps });
     msg = `Sync selesai: ${r.created} baru, ${r.updated} diperbarui, ${r.repriced.length} harga dinaikkan, ${r.unavailable} tidak tersedia`;
     if (r.unknownBrands.length) msg += `. Brand belum punya game: ${r.unknownBrands.join(", ")}`;
   } catch (e) {
@@ -352,6 +352,98 @@ export async function gatewayOpAction(fd: FormData) {
     back(GW_PATH, "Gateway dihapus");
   }
   back(GW_PATH, "Aksi tidak dikenal", "err");
+}
+
+// ---------- Billers ----------
+const BILLER_PATH = "/admin/billers";
+
+export async function saveBillerAction(fd: FormData) {
+  await requireAdmin();
+  const id = str(fd, "id");
+  const existing = id ? await db.billerAccount.findUnique({ where: { id } }) : null;
+  if (id && !existing) back(BILLER_PATH, "Biller tidak ditemukan", "err");
+  const provider = (existing?.provider ?? str(fd, "provider")) as BillerProvider;
+  const spec = BILLER_PROVIDERS[provider];
+  if (!spec) back(BILLER_PATH, "Provider tidak didukung", "err");
+
+  const config: Record<string, string> = {};
+  for (const f of spec.configFields) config[f.key] = str(fd, `cfg_${f.key}`);
+  if (config.baseUrl && !/^https?:\/\/[^\s]+$/.test(config.baseUrl)) back(BILLER_PATH, "Base URL tidak valid", "err");
+  // Secret kosong = pertahankan yang lama.
+  let old: Record<string, string> = {};
+  try {
+    old = decryptJson(existing?.secrets);
+  } catch {
+    old = {};
+  }
+  const secrets: Record<string, string> = {};
+  for (const f of spec.secretFields) secrets[f.key] = str(fd, `sec_${f.key}`) || old[f.key] || "";
+  const data = {
+    name: str(fd, "name") || spec.label,
+    config,
+    secrets: spec.secretFields.length ? encryptJson(secrets) : null,
+  };
+  if (existing?.isActive) {
+    const missing = spec.secretFields.filter((f) => spec.required.includes(f.key) && !secrets[f.key]);
+    if (missing.length) back(BILLER_PATH, `Biller aktif wajib lengkap: ${missing.map((f) => f.label).join(", ")}`, "err");
+  }
+  if (existing) {
+    await db.billerAccount.update({ where: { id }, data });
+  } else {
+    const code = str(fd, "code").toLowerCase();
+    if (!/^[a-z0-9-]{2,32}$/.test(code)) back(BILLER_PATH, "Kode hanya huruf kecil/angka/strip (2–32)", "err");
+    if (await db.billerAccount.findUnique({ where: { code } })) back(BILLER_PATH, `Kode ${code} sudah dipakai`, "err");
+    await db.billerAccount.create({ data: { ...data, code, provider, isActive: false } });
+  }
+  back(BILLER_PATH, "Biller disimpan");
+}
+
+export async function billerOpAction(fd: FormData) {
+  await requireAdmin();
+  const id = str(fd, "id");
+  const op = str(fd, "op");
+  const acc = await db.billerAccount.findUnique({ where: { id }, include: { _count: { select: { orders: true } } } });
+  if (!acc) back(BILLER_PATH, "Biller tidak ditemukan", "err");
+  if (op === "test") {
+    let msg: string;
+    try {
+      const balance = await billerAdapter(acc).getBalance();
+      msg = `Terhubung. Saldo deposit Rp ${balance.toLocaleString("id-ID")}`;
+    } catch (e) {
+      back(BILLER_PATH, `${acc.name}: ${e instanceof Error ? e.message : String(e)}`, "err");
+    }
+    back(BILLER_PATH, `${acc.name}: ${msg}`);
+  }
+  if (op === "activate") {
+    const spec = BILLER_PROVIDERS[acc.provider];
+    let sec: Record<string, string> = {};
+    try {
+      sec = decryptJson(acc.secrets);
+    } catch {
+      sec = {};
+    }
+    const missing = spec.secretFields.filter((f) => spec.required.includes(f.key) && !sec[f.key]);
+    if (missing.length) back(BILLER_PATH, `Tidak bisa diaktifkan: ${missing.map((f) => f.label).join(", ")} belum diisi`, "err");
+    // Satu biller aktif untuk order baru; order yang sedang diproses tetap dicek ke biller lamanya.
+    await db.$transaction([
+      db.billerAccount.updateMany({ where: { id: { not: acc.id } }, data: { isActive: false } }),
+      db.billerAccount.update({ where: { id: acc.id }, data: { isActive: true } }),
+    ]);
+    revalidatePath("/admin", "layout");
+    back(BILLER_PATH, `${acc.name} sekarang biller aktif. Jalankan Sync Produk di Pengaturan & Sync.`);
+  }
+  if (op === "deactivate") {
+    await db.billerAccount.update({ where: { id: acc.id }, data: { isActive: false } });
+    revalidatePath("/admin", "layout");
+    back(BILLER_PATH, `${acc.name} dinonaktifkan`);
+  }
+  if (op === "delete") {
+    if (acc.isActive) back(BILLER_PATH, "Nonaktifkan biller dulu", "err");
+    if (acc._count.orders) back(BILLER_PATH, "Biller sudah dipakai transaksi — nonaktifkan saja", "err");
+    await db.billerAccount.delete({ where: { id } });
+    back(BILLER_PATH, "Biller dihapus");
+  }
+  back(BILLER_PATH, "Aksi tidak dikenal", "err");
 }
 
 // ---------- Banners ----------

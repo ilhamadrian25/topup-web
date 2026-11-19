@@ -38,6 +38,11 @@ enum GatewayProvider {
   IPAYMU
 }
 
+enum BillerProvider {
+  MOCK
+  PAYTERRA
+}
+
 enum PaymentGroup {
   QRIS
   VIRTUAL_ACCOUNT
@@ -142,6 +147,24 @@ model PaymentGateway {
   orders    Order[]
 }
 
+/// Akun biller (pemasok produk). Hanya satu yang aktif dan dipakai untuk order
+/// baru; order yang sudah dikirim tetap dicek ke biller yang memprosesnya.
+model BillerAccount {
+  id        String         @id @default(cuid())
+  /// Dipakai di URL webhook: /api/biller/callback/{code}
+  code      String         @unique
+  name      String
+  provider  BillerProvider
+  isActive  Boolean        @default(false)
+  /// Konfigurasi non-rahasia, mis. { baseUrl }.
+  config    Json           @default("{}")
+  /// Kredensial terenkripsi AES-256-GCM (lihat lib/secrets.ts).
+  secrets   String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  orders    Order[]
+}
+
 model PaymentMethod {
   id             String          @id @default(cuid())
   gatewayId      String?
@@ -200,6 +223,9 @@ model Order {
   /// Gateway yang menerbitkan tagihan (disalin dari metode saat order dibuat).
   paymentGatewayId  String?
   paymentGateway    PaymentGateway?   @relation(fields: [paymentGatewayId], references: [id])
+  /// Biller yang memproses percobaan kirim terakhir (null = biller dari env, order lama).
+  billerAccountId   String?
+  billerAccount     BillerAccount?    @relation(fields: [billerAccountId], references: [id])
   /// ID transaksi di gateway (iPaymu TransactionId).
   paymentRef        String?
   /// Instruksi bayar: { type: "qris", qrString } | { type: "va", bank, vaNumber } | { type: "redirect", url }
