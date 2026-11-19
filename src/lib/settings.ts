@@ -50,7 +50,21 @@ export async function saveSettings(patch: Partial<StoreSettings>) {
   );
 }
 
-/** Harga jual = modal + margin, dibulatkan ke atas ke kelipatan 100. */
-export function applyMargin(basePrice: number, marginBps: number): number {
-  return Math.ceil((basePrice * (10000 + marginBps)) / 10000 / 100) * 100;
+export type Margin = { bps: number; flat: number };
+
+/** Harga jual = modal + margin persen + margin tetap, dibulatkan ke atas ke kelipatan 100. */
+export function applyMargin(basePrice: number, marginBps: number, marginFlat = 0): number {
+  return Math.ceil(((basePrice * (10000 + marginBps)) / 10000 + marginFlat) / 100) * 100;
+}
+
+/** Harga member = harga jual − diskon member (dibulatkan ke bawah); null bila tidak di atas modal. */
+export function memberPriceFor(price: number, basePrice: number, memberDiscountBps: number): number | null {
+  if (memberDiscountBps <= 0) return null;
+  const mp = Math.floor((price * (10000 - memberDiscountBps)) / 10000 / 100) * 100;
+  return mp > basePrice ? mp : null;
+}
+
+/** Margin efektif kategori: marginBps kategori (null = default toko) + marginFlat kategori. */
+export function categoryMargin(cat: { marginBps: number | null; marginFlat: number }, defaultMarginBps: number): Margin {
+  return { bps: cat.marginBps ?? defaultMarginBps, flat: cat.marginFlat };
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { categoryMargin, getSettings } from "@/lib/settings";
 import { rupiah } from "@/lib/format";
 import { GameForm } from "../GameForm";
 import { Flash, type FlashSP } from "../../Flash";
@@ -8,11 +9,13 @@ import { bulkMarginAction, saveProductsAction } from "../../actions";
 
 export default async function AdminGameDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: FlashSP }) {
   const { id } = await params;
-  const [game, categories] = await Promise.all([
-    db.game.findUnique({ where: { id }, include: { products: { orderBy: [{ sortOrder: "asc" }, { basePrice: "asc" }] } } }),
+  const [game, categories, settings] = await Promise.all([
+    db.game.findUnique({ where: { id }, include: { category: true, products: { orderBy: [{ sortOrder: "asc" }, { basePrice: "asc" }] } } }),
     db.category.findMany({ orderBy: { sortOrder: "asc" } }),
+    getSettings(),
   ]);
   if (!game) notFound();
+  const margin = categoryMargin(game.category, settings.defaultMarginBps);
 
   return (
     <div className="space-y-6">
@@ -30,7 +33,11 @@ export default async function AdminGameDetail({ params, searchParams }: { params
             <input type="hidden" name="gameId" value={game.id} />
             <div>
               <label className="label" htmlFor="marginBps">Set margin semua (bps, 500 = 5%)</label>
-              <input id="marginBps" name="marginBps" type="number" min={0} defaultValue={500} className="input !w-32 !py-1.5" />
+              <input id="marginBps" name="marginBps" type="number" min={0} defaultValue={margin.bps} className="input !w-32 !py-1.5" />
+            </div>
+            <div>
+              <label className="label" htmlFor="marginFlat">+ Rp tetap</label>
+              <input id="marginFlat" name="marginFlat" type="number" min={0} step={100} defaultValue={margin.flat} className="input !w-28 !py-1.5" />
             </div>
             <button className="btn-ghost !py-1.5">Terapkan</button>
           </form>

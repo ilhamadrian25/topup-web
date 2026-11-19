@@ -20,8 +20,23 @@ const BRANDS: Brand[] = [
   { code: "VALO", name: "Valorant", items: [["475 VP", 52_000], ["1000 VP", 104_000], ["2050 VP", 208_000], ["3650 VP", 362_000]] },
   { code: "STEAM", name: "Steam Wallet (IDR)", items: [["Steam Wallet IDR 12.000", 12_500], ["Steam Wallet IDR 45.000", 46_000], ["Steam Wallet IDR 60.000", 61_000], ["Steam Wallet IDR 120.000", 121_500], ["Steam Wallet IDR 250.000", 252_000]] },
   { code: "GPLAY", name: "Google Play Voucher", items: [["Google Play Rp 20.000", 20_800], ["Google Play Rp 50.000", 51_000], ["Google Play Rp 100.000", 101_500]] },
+  ...([
+    ["DANA", "Saldo DANA", 1_000],
+    ["OVO", "Saldo OVO", 1_500],
+    ["GOPAY", "Saldo GoPay", 1_000],
+    ["SHOPEEPAY", "Saldo ShopeePay", 1_000],
+    ["LINKAJA", "Saldo LinkAja", 1_500],
+  ] as const).map(([code, name, admin]): Brand => ({
+    code,
+    name,
+    items: [10_000, 20_000, 25_000, 50_000, 100_000, 150_000, 200_000, 300_000, 500_000, 1_000_000].map(
+      (n): [string, number] => [`${name} Rp ${n.toLocaleString("id-ID")}`, n + admin],
+    ),
+  })),
 ];
 
+/** Isi saldo e-wallet: akun = nomor HP, hasil cek akun = nama pemilik (disamarkan). */
+const EWALLET_BRANDS = new Set(["DANA", "OVO", "GOPAY", "SHOPEEPAY", "LINKAJA"]);
 const VOUCHER_BRANDS = new Set(["STEAM", "GPLAY"]);
 
 const PRODUCTS: BillerProduct[] = BRANDS.flatMap((b) =>
@@ -43,6 +58,9 @@ function hash(s: string): number {
 }
 
 const ADJ = ["Swift", "Shadow", "Lucky", "Crimson", "Silent", "Brave", "Mystic", "Frost", "Neon", "Royal"];
+const FIRST = ["Budi", "Siti", "Agus", "Dewi", "Rizky", "Putri", "Andi", "Rina", "Fajar", "Ayu"];
+const LAST = ["Santoso", "Rahmawati", "Pratama", "Lestari", "Saputra", "Wulandari", "Hidayat", "Kurniawan", "Nugroho", "Permata"];
+const mask = (s: string) => s[0] + "*".repeat(s.length - 1);
 const NOUN = ["Tiger", "Ranger", "Phoenix", "Wolf", "Knight", "Hunter", "Dragon", "Samurai", "Falcon", "Ghost"];
 
 function primaryId(account: Record<string, string>): string {
@@ -83,8 +101,12 @@ export class MockBiller implements BillerAdapter {
     await new Promise((r) => setTimeout(r, 400));
     if (!BRANDS.some((b) => b.code === brandCode)) return { ok: false, message: "Game tidak didukung" };
     const id = primaryId(account);
-    if (!/^\d{5,}$/.test(id) || id.endsWith("999")) return { ok: false, message: "Akun tidak ditemukan. Periksa kembali ID kamu." };
     const h = hash(JSON.stringify(account));
+    if (EWALLET_BRANDS.has(brandCode)) {
+      if (!/^08\d{8,11}$/.test(id) || id.endsWith("999")) return { ok: false, message: "Nomor tidak terdaftar. Periksa kembali nomor HP kamu." };
+      return { ok: true, nickname: `${FIRST[h % FIRST.length].toUpperCase()} ${mask(LAST[(h >>> 4) % LAST.length].toUpperCase())}` };
+    }
+    if (!/^\d{5,}$/.test(id) || id.endsWith("999")) return { ok: false, message: "Akun tidak ditemukan. Periksa kembali ID kamu." };
     return { ok: true, nickname: `${ADJ[h % ADJ.length]}${NOUN[(h >>> 4) % NOUN.length]}${h % 100}` };
   }
 

@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { BillerAdapter } from "./biller/types";
-import { applyMargin } from "./settings";
+import { applyMargin, categoryMargin, memberPriceFor } from "./settings";
 
 export type SyncReport = {
   created: number;
@@ -12,7 +12,7 @@ export type SyncReport = {
 
 /**
  * Tarik produk dari biller dan cocokkan ke Game lewat billerBrandCode.
- * - Produk baru: harga jual = modal + margin default.
+ * - Produk baru: harga jual = modal + margin kategori (fallback margin default).
  * - Produk lama: harga jual admin dipertahankan, kecuali modal naik
  *   sampai >= harga jual (supaya tidak jual rugi) — dinaikkan ulang.
  * - Produk yang hilang dari biller: billerAvailable = false.
@@ -22,11 +22,13 @@ export async function syncProducts(
   biller: BillerAdapter,
   opts: { marginBps: number; memberDiscountBps: number },
 ): Promise<SyncReport> {
-  const [items, games] = await Promise.all([biller.listProducts(), db.game.findMany()]);
+  const [items, games] = await Promise.all([biller.listProducts(), db.game.findMany({ include: { category: true } })]);
   const gameByBrand = new Map(games.map((g) => [g.billerBrandCode, g]));
   const existing = new Map((await db.product.findMany()).map((p) => [p.billerProductCode, p]));
-  const memberPrice = (price: number) =>
-    opts.memberDiscountBps > 0 ? Math.floor((price * (10000 - opts.memberDiscountBps)) / 10000 / 100) * 100 : null;
+  const priceFor = (basePrice: number, game: (typeof games)[number]) => {
+    const m = categoryMargin(game.category, opts.marginBps);
+    return applyMargin(basePrice, m.bps, m.flat);
+  };
 
   const report: SyncReport = { created: 0, updated: 0, repriced: [], unavailable: 0, unknownBrands: [] };
   const seen = new Set<string>();
@@ -41,8 +43,7 @@ export async function syncProducts(
     seen.add(it.code);
     const cur = existing.get(it.code);
     if (!cur) {
-      const price = applyMargin(it.price, opts.marginBps);
-      const mp = memberPrice(price);
+      const price = priceFor(it.price, game);
       await db.product.create({
         data: {
           gameId: game.id,
@@ -50,7 +51,7 @@ export async function syncProducts(
           billerProductCode: it.code,
           basePrice: it.price,
           price,
-          memberPrice: mp != null && mp > it.price ? mp : null,
+          memberPrice: memberPriceFor(price, it.price, opts.memberDiscountBps),
           billerAvailable: it.available,
           sortOrder: i,
         },
@@ -61,7 +62,7 @@ export async function syncProducts(
     let price = cur.price;
     let mp = cur.memberPrice;
     if (it.price >= cur.price) {
-      price = applyMargin(it.price, opts.marginBps);
+      price = priceFor(it.price, game);
       report.repriced.push({ code: it.code, oldPrice: cur.price, newPrice: price });
     }
     if (mp != null && mp <= it.price) mp = null;

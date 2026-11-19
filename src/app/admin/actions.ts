@@ -11,7 +11,7 @@ import { markOrderPaid, markRefunded, retryFulfillment, syncGatewayPayment, Orde
 import { gatewayAdapter, PROVIDERS } from "@/lib/payment";
 import { decryptJson, encryptJson } from "@/lib/secrets";
 import type { GatewayProvider, PaymentGroup } from "@prisma/client";
-import { getSettings, saveSettings } from "@/lib/settings";
+import { applyMargin, categoryMargin, getSettings, memberPriceFor, saveSettings } from "@/lib/settings";
 import type { InputField } from "@/lib/types";
 import { imageFromForm, UploadError } from "@/lib/storage";
 
@@ -187,21 +187,52 @@ export async function saveProductsAction(fd: FormData) {
   back(`/admin/games/${gameId}`, "Produk disimpan");
 }
 
+/** Hitung ulang harga jual & member dari modal untuk sekumpulan produk. */
+async function reprice(where: { gameId: string } | { game: { categoryId: string } }, bps: number, flat: number) {
+  const s = await getSettings();
+  const products = await db.product.findMany({ where });
+  await db.$transaction(
+    products.map((p) => {
+      const price = applyMargin(p.basePrice, bps, flat);
+      return db.product.update({ where: { id: p.id }, data: { price, memberPrice: memberPriceFor(price, p.basePrice, s.memberDiscountBps) } });
+    }),
+  );
+  revalidatePath("/games", "layout");
+  return products.length;
+}
+
+const marginLabel = (bps: number, flat: number) =>
+  [bps ? `${bps / 100}%` : null, flat ? `Rp ${flat.toLocaleString("id-ID")}` : null].filter(Boolean).join(" + ") || "0";
+
 export async function bulkMarginAction(fd: FormData) {
   await requireAdmin();
   const gameId = str(fd, "gameId");
   const bps = int(fd, "marginBps");
-  if (bps == null || bps < 0) back(`/admin/games/${gameId}`, "Margin tidak valid", "err");
-  const s = await getSettings();
-  const products = await db.product.findMany({ where: { gameId } });
-  await db.$transaction(
-    products.map((p) => {
-      const price = Math.ceil((p.basePrice * (10000 + bps)) / 10000 / 100) * 100;
-      const mp = s.memberDiscountBps > 0 ? Math.floor((price * (10000 - s.memberDiscountBps)) / 10000 / 100) * 100 : null;
-      return db.product.update({ where: { id: p.id }, data: { price, memberPrice: mp != null && mp > p.basePrice ? mp : null } });
-    }),
-  );
-  back(`/admin/games/${gameId}`, `Harga ${products.length} produk dihitung ulang dengan margin ${bps / 100}%`);
+  const flat = int(fd, "marginFlat") ?? 0;
+  if (bps == null || bps < 0 || flat < 0) back(`/admin/games/${gameId}`, "Margin tidak valid", "err");
+  const n = await reprice({ gameId }, bps, flat);
+  back(`/admin/games/${gameId}`, `Harga ${n} produk dihitung ulang dengan margin ${marginLabel(bps, flat)}`);
+}
+
+// ---------- Category margins ----------
+export async function saveCategoryMarginsAction(fd: FormData) {
+  await requireAdmin();
+  const path = "/admin/settings";
+  const ids = fd.getAll("cid").map(String);
+  const rows = ids.map((id) => ({ id, bps: int(fd, `bps_${id}`), flat: int(fd, `flat_${id}`) ?? 0 }));
+  if (rows.some((r) => (r.bps != null && r.bps < 0) || r.flat < 0)) back(path, "Margin tidak boleh negatif", "err");
+  await db.$transaction(rows.map((r) => db.category.update({ where: { id: r.id }, data: { marginBps: r.bps, marginFlat: r.flat } })));
+  back(path, "Margin kategori disimpan. Berlaku untuk produk baru saat sync — klik \"Terapkan ke harga\" untuk produk yang sudah ada.");
+}
+
+export async function repriceCategoryAction(fd: FormData) {
+  await requireAdmin();
+  const path = "/admin/settings";
+  const cat = await db.category.findUnique({ where: { id: str(fd, "cid") } });
+  if (!cat) back(path, "Kategori tidak ditemukan", "err");
+  const m = categoryMargin(cat, (await getSettings()).defaultMarginBps);
+  const n = await reprice({ game: { categoryId: cat.id } }, m.bps, m.flat);
+  back(path, `${cat.name}: harga ${n} produk dihitung ulang dengan margin ${marginLabel(m.bps, m.flat)}`);
 }
 
 // ---------- Payment methods ----------

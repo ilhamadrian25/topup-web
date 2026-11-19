@@ -56,11 +56,15 @@ model User {
 }
 
 model Category {
-  id        String @id @default(cuid())
-  slug      String @unique
-  name      String
-  sortOrder Int    @default(0)
-  games     Game[]
+  id         String @id @default(cuid())
+  slug       String @unique
+  name       String
+  sortOrder  Int    @default(0)
+  /// Margin khusus kategori (basis poin). null = pakai margin default toko.
+  marginBps  Int?
+  /// Margin tetap (Rp) ditambahkan di atas margin persen, mis. untuk saldo e-wallet.
+  marginFlat Int    @default(0)
+  games      Game[]
 }
 
 /// Satu "brand" yang bisa di-top up (game, voucher, dsb).

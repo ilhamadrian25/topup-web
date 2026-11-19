@@ -183,7 +183,7 @@ export function OrderForm(props: {
                 </button>
                 {nick.state === "ok" && nick.for === accountKey && (
                   <span className="rounded-lg bg-green-50 px-3 py-1.5 text-sm text-success">
-                    <CheckCircle2 className="mr-1 inline h-4 w-4" />Nickname: <b>{nick.text}</b>
+                    <CheckCircle2 className="mr-1 inline h-4 w-4" />Nama akun: <b>{nick.text}</b>
                   </span>
                 )}
                 {nick.state === "ok" && nick.for !== accountKey && (

@@ -39,11 +39,27 @@ const GAMES = [
     fields: [], hint: "Kode voucher akan tampil di halaman invoice setelah pembayaran berhasil." },
   { slug: "google-play", name: "Google Play Voucher", publisher: "Google", brand: "GPLAY", cat: "voucher", popular: false, nick: false,
     fields: [], hint: "Kode voucher akan tampil di halaman invoice setelah pembayaran berhasil." },
+  ...([
+    ["dana", "DANA", "DANA Indonesia", "DANA", true],
+    ["ovo", "OVO", "Visionet Internasional", "OVO", true],
+    ["gopay", "GoPay", "GoTo Financial", "GOPAY", true],
+    ["shopeepay", "ShopeePay", "Shopee", "SHOPEEPAY", false],
+    ["linkaja", "LinkAja", "Fintek Karya Nusantara", "LINKAJA", false],
+  ] as const).map(([slug, name, publisher, brand, popular]) => ({
+    slug: `saldo-${slug}`, name: `Saldo ${name}`, publisher, brand, cat: "ewallet", popular, nick: true,
+    fields: [id("phone", `Nomor HP ${name}`, "Contoh: 081234567890")],
+    hint: `Masukkan nomor HP yang terdaftar di ${name}. Pastikan nama pemilik akun sesuai sebelum membayar — saldo yang sudah masuk tidak bisa ditarik kembali.`,
+  })),
 ];
 
 const GAME_IMAGE: Record<string, string> = {
   "google-play": "/games/google-play.svg",
   valorant: "/games/valorant.svg",
+  "saldo-dana": "/pay/dana.svg",
+  "saldo-ovo": "/pay/ovo.svg",
+  "saldo-gopay": "/games/gopay.svg",
+  "saldo-shopeepay": "/pay/shopeepay.svg",
+  "saldo-linkaja": "/games/linkaja.svg",
 };
 const imageFor = (slug: string) => GAME_IMAGE[slug] ?? `/games/${slug}.jpg`;
 
@@ -79,6 +95,7 @@ async function main() {
   const cats = {
     game: await db.category.upsert({ where: { slug: "game" }, update: {}, create: { slug: "game", name: "Top Up Game", sortOrder: 0 } }),
     voucher: await db.category.upsert({ where: { slug: "voucher" }, update: {}, create: { slug: "voucher", name: "Voucher", sortOrder: 1 } }),
+    ewallet: await db.category.upsert({ where: { slug: "ewallet" }, update: {}, create: { slug: "ewallet", name: "E-Wallet", sortOrder: 2, marginBps: 0, marginFlat: 500 } }),
   };
 
   for (const [i, g] of GAMES.entries()) {
