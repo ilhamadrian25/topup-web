@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { biller } from "@/lib/biller";
+import { activeBiller } from "@/lib/biller";
 import { OrderError, parseAccount } from "@/lib/orders";
 import { rateLimit } from "@/lib/ratelimit";
 import type { InputField } from "@/lib/types";
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
 
   try {
     const account = parseAccount(game.inputFields as InputField[], body.account ?? {});
-    const r = await biller().checkAccount({ brandCode: game.billerBrandCode, account });
+    const r = await (await activeBiller()).adapter.checkAccount({ brandCode: game.billerBrandCode, account });
     return NextResponse.json(r, { status: r.ok ? 200 : 422 });
   } catch (e) {
     if (e instanceof OrderError) return NextResponse.json({ ok: false, message: e.message }, { status: 400 });

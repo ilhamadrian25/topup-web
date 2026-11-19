@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, Gamepad2, Image as ImageIcon, LayoutDashboard, ReceiptText, Settings, Users, Wallet } from "lucide-react";
+import { CreditCard, Gamepad2, Image as ImageIcon, LayoutDashboard, PlugZap, ReceiptText, Settings, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -10,6 +10,7 @@ const NAV = [
   { href: "/admin/games", label: "Game & Produk", icon: Gamepad2 },
   { href: "/admin/payment-methods", label: "Metode Bayar", icon: Wallet },
   { href: "/admin/payment-gateways", label: "Payment Gateway", icon: CreditCard },
+  { href: "/admin/billers", label: "Biller", icon: PlugZap },
   { href: "/admin/banners", label: "Banner", icon: ImageIcon },
   { href: "/admin/users", label: "User", icon: Users },
   { href: "/admin/settings", label: "Pengaturan & Sync", icon: Settings },

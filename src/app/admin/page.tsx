@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { biller } from "@/lib/biller";
+import { activeBiller, billerLabel } from "@/lib/biller";
 import { dateTime, rupiah } from "@/lib/format";
 import { GameCover } from "@/components/GameCover";
 import { FulfillmentBadge, PaymentBadge } from "@/components/StatusBadge";
@@ -107,6 +107,8 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
   chartStart.setDate(chartStart.getDate() - (chartDays - 1));
   const from = prevStart < chartStart ? prevStart : chartStart;
 
+  const activeB = await activeBiller();
+  const billerName = billerLabel(activeB);
   const [orders, attention, recent, balance, users] = await Promise.all([
     db.order.findMany({
       where: { createdAt: { gte: from } },
@@ -131,7 +133,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
         game: { select: { name: true, imageUrl: true } },
       },
     }),
-    biller().getBalance().catch(() => null),
+    activeB.adapter.getBalance().catch(() => null),
     db.user.count({ where: { role: "MEMBER" } }),
   ]);
 
@@ -245,7 +247,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
           <Delta cur={cur.n} prev={prev.n} />
         </Kpi>
         <Kpi icon={Wallet} label="Saldo biller" value={balance == null ? "—" : rupiah(balance)} tone="sky">
-          <span className="text-xs text-muted">{balance == null ? "Gagal memuat saldo" : `${biller().name === "mock" ? "Mock · " : ""}Payterra merchant`}</span>
+          <span className="text-xs text-muted">{balance == null ? "Gagal memuat saldo" : billerName}</span>
         </Kpi>
       </div>
 
