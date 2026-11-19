@@ -1,8 +1,10 @@
-# Build image → push GHCR → deploy ke VPS (stack /opt/topupin, terpisah dari payterra).
+# Build the image → push to GHCR → (optionally) deploy to your server with deploy/deploy.sh.
 #
-# Repo secrets:   VPS_HOST, VPS_USER, VPS_SSH_KEY (private key, user boleh jalankan docker)
-#                 VPS_KNOWN_HOSTS (opsional; output `ssh-keyscan <host>` — kosong = keyscan saat jalan)
-# Repo variable:  VPS_DEPLOY = "true" untuk mengaktifkan job deploy (tanpa itu hanya build + push).
+# The deploy job only runs when the repository variable VPS_DEPLOY is "true", so forks just
+# build and push. To enable it (see deploy/README.md):
+#   secrets:   VPS_HOST, VPS_USER, VPS_SSH_KEY (private key of a user that may run docker)
+#              VPS_KNOWN_HOSTS (optional; output of `ssh-keyscan <host>`, empty = keyscan at run time)
+#   variables: VPS_DEPLOY=true, DEPLOY_DIR (optional, default /opt/topup-web)
 name: deploy
 
 on:
@@ -19,15 +21,19 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/${{ github.repository }}
+  DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/topup-web' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      image: ${{ env.IMAGE }}:${{ github.sha }}
+      image: ${{ steps.img.outputs.name }}:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+
+      # GHCR needs a lowercase repository path (owners may have uppercase letters).
+      - id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -42,8 +48,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ github.sha }}
-            ${{ env.IMAGE }}:latest
+            ${{ steps.img.outputs.name }}:${{ github.sha }}
+            ${{ steps.img.outputs.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -51,7 +57,6 @@ jobs:
     needs: build
     if: vars.VPS_DEPLOY == 'true'
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,13 +75,13 @@ jobs:
 
       - name: Sync deploy files
         run: |
-          ssh vps 'mkdir -p /opt/topupin'
-          scp deploy/docker-compose.yml deploy/deploy.sh deploy/backup.sh deploy/migrate-from-supabase.sh deploy/.env.example vps:/opt/topupin/
-          ssh vps 'chmod +x /opt/topupin/*.sh'
+          ssh vps "mkdir -p '$DEPLOY_DIR'"
+          scp deploy/docker-compose.yml deploy/deploy.sh deploy/backup.sh deploy/migrate-from-supabase.sh deploy/.env.example "vps:$DEPLOY_DIR/"
+          ssh vps "chmod +x '$DEPLOY_DIR'/*.sh"
 
       - name: Deploy
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           printf '%s' "$GHCR_TOKEN" | ssh vps "docker login ghcr.io -u '${{ github.actor }}' --password-stdin >/dev/null"
-          ssh vps "/opt/topupin/deploy.sh '${{ needs.build.outputs.image }}'; rc=\$?; docker logout ghcr.io >/dev/null; exit \$rc"
+          ssh vps "'$DEPLOY_DIR/deploy.sh' '${{ needs.build.outputs.image }}'; rc=\$?; docker logout ghcr.io >/dev/null; exit \$rc"

@@ -1,74 +1,79 @@
-# Deploy topupin ke VPS
+# Self-hosting topup-web
 
-Stack sendiri di `/opt/topupin` (Docker Compose project `topupin`: `app` + `db` Postgres 17),
-terpisah dari stack payterra. Satu-satunya titik sentuh: nginx payterra (pemilik port 80/443)
-meneruskan `topupin.xyz` ke `172.17.0.1:3310`.
+Runs the store on any Linux server with Docker: the app and a bundled Postgres 17 in one Compose
+project, behind a reverse proxy you already have (nginx, Caddy, Traefik, …). A fixed server IP also
+lets you use payment gateways that whitelist API callers by IP (iPaymu production does).
 
 ```
-Cloudflare (proxied) → nginx payterra :443 ──host.docker.internal:3310──► topupin-app ──► topupin-db
-                                                                         └─► iPaymu (keluar dari IP VPS → whitelist IP ini)
+browser → your reverse proxy (TLS) → APP_BIND (default 127.0.0.1:3000) → app → db
+                                                                            └─► payment gateway / biller (from this server's IP)
 ```
 
-CI/CD: `.github/workflows/deploy.yml` — push ke `main` → build image → `ghcr.io/ilhamadrian25/topup-web:<sha>`
-→ SSH → `deploy.sh` (pull → `prisma migrate deploy` → up → health check, rollback otomatis kalau tidak sehat).
-
-## Setup sekali (di VPS, sebagai root)
-
-1. **Folder & env**
-   ```bash
-   mkdir -p /opt/topupin && cd /opt/topupin
-   # salin deploy/.env.example dari repo → .env, lalu isi
-   chmod 600 .env
-   ```
-   `AUTH_SECRET` dan `CONFIG_ENCRYPTION_KEY` **harus sama** dengan produksi lama (Vercel) —
-   kredensial iPaymu di DB terenkripsi dengan kunci itu.
-
-2. **User deploy untuk GitHub Actions** (boleh pakai user yang sudah ada asal bisa `docker`):
-   ```bash
-   useradd -m -s /bin/bash -G docker topupin-deploy
-   chown -R topupin-deploy: /opt/topupin
-   ssh-keygen -t ed25519 -N '' -f /tmp/topupin_gha     # private → secret VPS_SSH_KEY
-   install -d -m 700 -o topupin-deploy /home/topupin-deploy/.ssh
-   cat /tmp/topupin_gha.pub >> /home/topupin-deploy/.ssh/authorized_keys
-   chown topupin-deploy: /home/topupin-deploy/.ssh/authorized_keys && chmod 600 /home/topupin-deploy/.ssh/authorized_keys
-   ```
-
-3. **GitHub** (repo topup-web → Settings):
-   - Secrets: `VPS_HOST=46.250.238.18`, `VPS_USER=topupin-deploy`, `VPS_SSH_KEY=<isi /tmp/topupin_gha>`,
-     opsional `VPS_KNOWN_HOSTS=<ssh-keyscan 46.250.238.18>`. Lalu hapus `/tmp/topupin_gha*` di server.
-   - Variables: `VPS_DEPLOY=true`.
-   - Jalankan workflow **deploy** (Actions → deploy → Run workflow) → stack naik dengan DB kosong + migrasi.
-
-4. **Nginx payterra** — vhost + origin cert topupin.xyz:
-   - Cloudflare → topupin.xyz → SSL/TLS → Origin Server → Create certificate (`topupin.xyz`, `*.topupin.xyz`)
-     → simpan sebagai `payterra-setup/nginx/ssl/topupin.crt` & `topupin.key` di server.
-   - Salin `deploy/nginx/topupin.conf` ke `payterra-setup/nginx/conf.d/topupin.conf`.
-   - `docker exec nginx nginx -t && docker exec nginx nginx -s reload`
-   - Tes sebelum DNS pindah: `curl -sk --resolve www.topupin.xyz:443:46.250.238.18 https://www.topupin.xyz/ -o /dev/null -w '%{http_code}\n'`
-
-5. **Pindah data dari Supabase** (Supabase hanya dibaca):
-   ```bash
-   cd /opt/topupin && SUPABASE_DB_URL='postgresql://…@…supabase.com:5432/postgres' ./migrate-from-supabase.sh
-   ```
-
-6. **iPaymu**: daftarkan IP `46.250.238.18` di whitelist IP akun iPaymu.
-
-7. **DNS cutover** (Cloudflare): `topupin.xyz` dan `www` → A `46.250.238.18`, **Proxied** (oranye), SSL mode **Full (strict)**.
-   Lalu di Vercel: Settings → Git → Disconnect (supaya push ke main tidak deploy ke Vercel lagi).
-   Kalau ada order yang dibuat di Vercel di antara langkah 5 dan 7, ulangi langkah 5 sesaat sebelum pindah DNS.
-
-8. **Backup harian**:
-   ```bash
-   echo '15 3 * * * root /opt/topupin/backup.sh >> /var/log/topupin-backup.log 2>&1' > /etc/cron.d/topupin-backup
-   ```
-
-## Operasional
-
-| Perlu | Perintah (di `/opt/topupin`) |
+| File | Purpose |
 |---|---|
-| Status | `docker compose ps` |
-| Log app | `docker compose logs -f --tail 100 app` |
-| Deploy ulang image tertentu | `./deploy.sh ghcr.io/ilhamadrian25/topup-web:<sha>` (package GHCR privat → `docker login ghcr.io` dulu) |
-| Rollback | `./deploy.sh $(cat .last_image)` sebelum deploy rusak, atau sha commit yang bagus |
+| `docker-compose.yml` | `app`, `db`, one-shot `migrate`; volumes `pgdata`, `uploads` |
+| `deploy.sh <image>` | pull → `prisma migrate deploy` → start → wait healthy, roll back to the previous image if not |
+| `backup.sh` | daily `pg_dump` + uploads tarball, 14-day retention |
+| `migrate-from-supabase.sh` | one-off copy from a Vercel + Supabase install |
+| `nginx.example.conf` | reverse-proxy example |
+| `../.github/workflows/deploy.yml` | push to `main` → image on GHCR → SSH → `deploy.sh` |
+
+## 1. Server
+
+```bash
+DEPLOY_DIR=/opt/topup-web
+sudo mkdir -p "$DEPLOY_DIR" && cd "$DEPLOY_DIR"
+# copy deploy/.env.example here as .env and fill it in (the workflow also copies it on every deploy)
+sudo chmod 600 .env
+```
+
+- `IMAGE`: `ghcr.io/<your-github-user>/topup-web:latest`. If the GHCR package is private, run
+  `docker login ghcr.io` once on the server (the workflow logs in for its own deploys).
+- `POSTGRES_PASSWORD`, `AUTH_SECRET`: generate them. **Moving an existing install?** Keep `AUTH_SECRET`
+  and `CONFIG_ENCRYPTION_KEY` from it: payment gateway credentials in the DB are encrypted with them.
+- `APP_BIND`: where your reverse proxy reaches the app. Keep `127.0.0.1:3000` for a proxy on the host;
+  a proxy in another Docker container on the same host can use the docker0 address (`172.17.0.1:3000`).
+  Never bind it to a public interface.
+
+## 2. Reverse proxy
+
+Point your domain at the app; `nginx.example.conf` shows the headers the app expects
+(`X-Forwarded-Proto`, `X-Forwarded-Host`) and the 5 MB body limit for admin image uploads.
+
+## 3. CI/CD (GitHub Actions)
+
+Repository settings → Secrets and variables → Actions:
+
+- Secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (a key whose public half is in that user's
+  `authorized_keys`; the user must be able to run `docker`), optional `VPS_KNOWN_HOSTS`.
+- Variables: `VPS_DEPLOY=true`, optional `DEPLOY_DIR` (default `/opt/topup-web`).
+
+Every push to `main` then builds `ghcr.io/<owner>/topup-web:<sha>` and deploys it. Without `VPS_DEPLOY`
+the workflow only builds and pushes. A manual deploy is `./deploy.sh ghcr.io/<owner>/topup-web:<sha>`.
+
+The first deploy starts with an empty database (all migrations applied). Create the first admin by
+running the seed once against it, or migrate an existing install (next step).
+
+## 4. Moving from Vercel + Supabase (optional)
+
+```bash
+cd "$DEPLOY_DIR" && SUPABASE_DB_URL='postgresql://…@….supabase.com:5432/postgres' ./migrate-from-supabase.sh
+```
+
+Supabase is only read. Images already uploaded to Supabase Storage keep working while that project exists;
+new uploads go to the `uploads` volume when `SUPABASE_*` are empty. Re-run it right before switching DNS
+if orders came in meanwhile, then disconnect the Vercel project's Git integration.
+
+## 5. Backups
+
+```bash
+echo "15 3 * * * root $DEPLOY_DIR/backup.sh >> /var/log/topup-web-backup.log 2>&1" | sudo tee /etc/cron.d/topup-web-backup
+```
+
+## Operations (in `$DEPLOY_DIR`)
+
+| Task | Command |
+|---|---|
+| Status / logs | `docker compose ps` · `docker compose logs -f --tail 100 app` |
+| Roll back | `./deploy.sh <previous image>` (`.last_image` holds the current one) |
 | psql | `docker compose exec db psql -U topup -d topup` |
-| Seed admin awal (DB kosong saja) | jangan di produksi yang sudah berisi data |

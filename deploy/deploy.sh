@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Deploy satu image topup-web di VPS. Dipanggil GitHub Actions lewat SSH, bisa juga manual:
-#   cd /opt/topupin && ./deploy.sh ghcr.io/ilhamadrian25/topup-web:<sha>
+# Deploy one topup-web image. Called by GitHub Actions over SSH, or by hand:
+#   cd <DEPLOY_DIR> && ./deploy.sh ghcr.io/<owner>/topup-web:<sha>
 #
-# Alur: pull → db up → prisma migrate deploy → app up → tunggu healthy.
-# Gagal sehat → app dikembalikan ke image sebelumnya (.last_image). Migrasi tidak di-rollback
-# (selalu tulis migrasi yang aditif / kompatibel mundur).
+# Flow: pull → db up → prisma migrate deploy → app up → wait for healthy.
+# Unhealthy → the app is put back on the previous image (.last_image). Migrations are
+# not rolled back, so keep them additive / backward compatible.
 set -euo pipefail
 
 cd "$(dirname "$0")"
-NEW_IMAGE="${1:?pakai: ./deploy.sh <image:tag>}"
+NEW_IMAGE="${1:?usage: ./deploy.sh <image:tag>}"
 PREV_IMAGE="$(cat .last_image 2>/dev/null || true)"
-[[ -f .env ]] || { echo "!! /opt/topupin/.env belum ada (salin dari .env.example)"; exit 1; }
+[[ -f .env ]] || { echo "!! $(pwd)/.env is missing (copy .env.example and fill it in)"; exit 1; }
 
 compose() { IMAGE="$1" docker compose "${@:2}"; }
 
@@ -43,11 +43,11 @@ if wait_healthy "$NEW_IMAGE"; then
   exit 0
 fi
 
-echo "!! $NEW_IMAGE tidak sehat — log terakhir:"
+echo "!! $NEW_IMAGE is not healthy — last logs:"
 compose "$NEW_IMAGE" logs --tail 80 app || true
 if [[ -n "$PREV_IMAGE" ]]; then
-  echo "==> rollback ke $PREV_IMAGE"
+  echo "==> rolling back to $PREV_IMAGE"
   compose "$PREV_IMAGE" up -d app
-  wait_healthy "$PREV_IMAGE" && echo "==> rollback sehat" || echo "!! rollback juga tidak sehat"
+  wait_healthy "$PREV_IMAGE" && echo "==> rollback healthy" || echo "!! rollback is not healthy either"
 fi
 exit 1
