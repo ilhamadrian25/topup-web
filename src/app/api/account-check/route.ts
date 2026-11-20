@@ -16,7 +16,17 @@ export async function POST(req: Request) {
 
   try {
     const account = parseAccount(game.inputFields as InputField[], body.account ?? {});
-    const r = await (await activeBiller()).adapter.checkAccount({ brandCode: game.billerBrandCode, account });
+    // Inquiry ke produk yang dipilih; belum pilih nominal → produk aktif pertama game ini (urutan tampil).
+    const productId = typeof body.productId === "string" ? body.productId : null;
+    const sellable = { gameId: game.id, isActive: true, billerAvailable: true };
+    const product =
+      (productId ? await db.product.findFirst({ where: { id: productId, ...sellable }, select: { billerProductCode: true } }) : null) ??
+      (await db.product.findFirst({ where: sellable, orderBy: [{ sortOrder: "asc" }, { price: "asc" }], select: { billerProductCode: true } }));
+    const r = await (await activeBiller()).adapter.checkAccount({
+      brandCode: game.billerBrandCode,
+      productCode: product?.billerProductCode,
+      account,
+    });
     return NextResponse.json(r, { status: r.ok ? 200 : 422 });
   } catch (e) {
     if (e instanceof OrderError) return NextResponse.json({ ok: false, message: e.message }, { status: 400 });

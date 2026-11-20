@@ -34,7 +34,8 @@ export interface BillerAdapter {
   readonly name: string;
   listProducts(): Promise<BillerProduct[]>;
   getBalance(): Promise<number>;
-  checkAccount(input: { brandCode: string; account: Record<string, string> }): Promise<AccountCheckResult>;
+  /** productCode = kode produk biller yang dipakai untuk inquiry (biller bisa punya jalur inquiry per produk). */
+  checkAccount(input: { brandCode: string; productCode?: string; account: Record<string, string> }): Promise<AccountCheckResult>;
   /** Harus idempoten terhadap refId: kirim ulang refId yang sama tidak boleh menggandakan transaksi. */
   purchase(input: { refId: string; productCode: string; account: Record<string, string> }): Promise<BillerTxResult>;
   checkStatus(input: { refId: string }): Promise<BillerTxResult>;

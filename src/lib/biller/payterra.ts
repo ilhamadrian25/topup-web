@@ -155,9 +155,13 @@ export class PayterraBiller implements BillerAdapter {
     return (await this.call<{ available: number }>("GET", "/v1/balance")).available;
   }
 
-  async checkAccount({ brandCode, account }: { brandCode: string; account: Record<string, string> }): Promise<AccountCheckResult> {
+  async checkAccount({ brandCode, productCode, account }: { brandCode: string; productCode?: string; account: Record<string, string> }): Promise<AccountCheckResult> {
     const items = await this.catalog();
-    const product = items.find((p) => p.brand.code === brandCode && p.available) ?? items.find((p) => p.brand.code === brandCode);
+    // Inquiry dirutekan core per produk (provider payload + inquiry_path), jadi pakai produk yang dipilih customer.
+    const product =
+      (productCode ? items.find((p) => p.code === productCode) : undefined) ??
+      items.find((p) => p.brand.code === brandCode && p.available) ??
+      items.find((p) => p.brand.code === brandCode);
     if (!product) return { ok: false, message: "Produk untuk game ini belum tersedia" };
     try {
       const r = await this.call<{ customer?: { name?: string } }>("POST", "/v1/inquiry", {
@@ -168,6 +172,8 @@ export class PayterraBiller implements BillerAdapter {
     } catch (e) {
       if (e instanceof PayterraApiError && (e.code === "CUSTOMER_NOT_FOUND" || e.code === "INVALID_INPUT"))
         return { ok: false, message: "Akun tidak ditemukan. Periksa kembali ID kamu." };
+      if (e instanceof PayterraApiError && e.code === "INQUIRY_TIMEOUT")
+        return { ok: false, message: "Cek akun sedang lambat, coba lagi sebentar." };
       throw e;
     }
   }

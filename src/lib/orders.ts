@@ -79,7 +79,11 @@ export async function createOrder(input: {
   // Nickname selalu dicek ulang di server; jangan percaya nilai dari client.
   let nickname: string | null = null;
   if (game.nicknameCheck) {
-    const r = await (await activeBiller()).adapter.checkAccount({ brandCode: game.billerBrandCode, account });
+    const r = await (await activeBiller()).adapter.checkAccount({
+      brandCode: game.billerBrandCode,
+      productCode: product.billerProductCode,
+      account,
+    });
     if (!r.ok) throw new OrderError(r.message);
     nickname = r.nickname;
   }

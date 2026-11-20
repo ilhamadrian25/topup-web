@@ -95,7 +95,7 @@ export function OrderForm(props: {
     const res = await fetch("/api/account-check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gameSlug: props.gameSlug, account }),
+      body: JSON.stringify({ gameSlug: props.gameSlug, productId, account }),
     }).catch(() => null);
     const j = await res?.json().catch(() => null);
     if (j?.ok) setNick({ state: "ok", text: j.nickname, for: accountKey });
