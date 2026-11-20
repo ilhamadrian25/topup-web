@@ -25,6 +25,8 @@ type OaProduct = {
   available: boolean;
   customer_inputs?: { key: string; label: string }[];
   prepaid?: { price: number };
+  /** type "free": the nominal is chosen by the buyer (e-wallet top-up); price = amount + admin. */
+  free?: { admin: number; min_amount: number; max_amount: number };
 };
 
 type OaTransaction = {
@@ -33,6 +35,7 @@ type OaTransaction = {
   status: "PENDING" | "SUCCESS" | "FAILED";
   amount?: { total?: number };
   prepaid?: { sn?: string };
+  free?: { amount?: number; admin?: number; sn?: string };
   message?: string;
 };
 
@@ -71,6 +74,25 @@ const MESSAGES: Record<string, string> = {
 };
 
 const PRODUCTS_TTL_MS = 60_000;
+
+/**
+ * Free-amount products (e-wallet top-up) are sold in Topupin as fixed packages:
+ * one product per nominal, coded "<payterra code>@<amount>" (e.g. DANA@20000).
+ */
+const FREE_DENOMS = [10_000, 20_000, 25_000, 50_000, 100_000, 150_000, 200_000, 300_000, 500_000, 1_000_000];
+
+export function splitFreeCode(code: string): { code: string; amount: number | null } {
+  const at = code.lastIndexOf("@");
+  if (at < 0) return { code, amount: null };
+  const amount = Number(code.slice(at + 1));
+  return Number.isInteger(amount) && amount > 0 ? { code: code.slice(0, at), amount } : { code, amount: null };
+}
+
+function freeDenoms(f: NonNullable<OaProduct["free"]>): number[] {
+  return FREE_DENOMS.filter((d) => d >= f.min_amount && (f.max_amount <= 0 || d <= f.max_amount));
+}
+
+const idr = (n: number) => n.toLocaleString("id-ID");
 
 export const PAYTERRA_DEFAULT_BASE_URL = "https://openapi.payterra.id";
 
@@ -139,16 +161,24 @@ export class PayterraBiller implements BillerAdapter {
 
   async listProducts(): Promise<BillerProduct[]> {
     const items = await this.catalog(true);
-    return items
-      .filter((p) => p.type === "prepaid" && p.prepaid)
-      .map((p) => ({
-        code: p.code,
-        brandCode: p.brand.code,
-        brandName: p.brand.name,
-        name: p.name,
-        price: p.prepaid!.price,
-        available: p.available,
-      }));
+    const out: BillerProduct[] = [];
+    for (const p of items) {
+      if (p.type === "prepaid" && p.prepaid) {
+        out.push({ code: p.code, brandCode: p.brand.code, brandName: p.brand.name, name: p.name, price: p.prepaid.price, available: p.available });
+      } else if (p.type === "free" && p.free) {
+        for (const d of freeDenoms(p.free)) {
+          out.push({
+            code: `${p.code}@${d}`,
+            brandCode: p.brand.code,
+            brandName: p.brand.name,
+            name: `Saldo ${idr(d)}`,
+            price: d + p.free.admin,
+            available: p.available,
+          });
+        }
+      }
+    }
+    return out;
   }
 
   async getBalance(): Promise<number> {
@@ -157,16 +187,23 @@ export class PayterraBiller implements BillerAdapter {
 
   async checkAccount({ brandCode, productCode, account }: { brandCode: string; productCode?: string; account: Record<string, string> }): Promise<AccountCheckResult> {
     const items = await this.catalog();
+    const sel = productCode ? splitFreeCode(productCode) : null;
     // Inquiry dirutekan core per produk (provider payload + inquiry_path), jadi pakai produk yang dipilih customer.
     const product =
-      (productCode ? items.find((p) => p.code === productCode) : undefined) ??
+      (sel ? items.find((p) => p.code === sel.code) : undefined) ??
       items.find((p) => p.brand.code === brandCode && p.available) ??
       items.find((p) => p.brand.code === brandCode);
     if (!product) return { ok: false, message: "Produk untuk game ini belum tersedia" };
+    // Free product: inquiry needs a nominal (the chosen package, else the smallest one sold).
+    let amount: number | undefined;
+    if (product.type === "free" && product.free) {
+      amount = (sel?.code === product.code ? sel.amount : null) ?? freeDenoms(product.free)[0] ?? product.free.min_amount;
+    }
     try {
       const r = await this.call<{ customer?: { name?: string } }>("POST", "/v1/inquiry", {
         product_code: product.code,
         ...this.customerFields(product, account),
+        ...(amount ? { amount } : {}),
       });
       return { ok: true, nickname: r.customer?.name?.trim() || "(nama tidak tersedia)" };
     } catch (e) {
@@ -179,14 +216,18 @@ export class PayterraBiller implements BillerAdapter {
   }
 
   async purchase({ refId, productCode, account }: { refId: string; productCode: string; account: Record<string, string> }): Promise<BillerTxResult> {
-    const product = (await this.catalog()).find((p) => p.code === productCode);
-    if (!product?.prepaid) return { status: "FAILED", message: "Produk tidak ada di katalog Payterra" };
+    const sel = splitFreeCode(productCode);
+    const product = (await this.catalog()).find((p) => p.code === sel.code);
+    let pricing: { price: number; amount?: number } | null = null;
+    if (product?.type === "prepaid" && product.prepaid && sel.amount === null) pricing = { price: product.prepaid.price };
+    else if (product?.type === "free" && product.free && sel.amount !== null) pricing = { amount: sel.amount, price: sel.amount + product.free.admin };
+    if (!product || !pricing) return { status: "FAILED", message: "Produk tidak ada di katalog Payterra" };
     try {
       const tx = await this.call<OaTransaction>("POST", "/v1/transactions", {
         ref_id: refId,
-        product_code: productCode,
+        product_code: product.code,
         ...this.customerFields(product, account),
-        price: product.prepaid.price,
+        ...pricing,
       });
       return toResult(tx);
     } catch (e) {
@@ -215,7 +256,7 @@ export function toResult(tx: OaTransaction): BillerTxResult {
   return {
     status: tx.status,
     billerRef: tx.trx_id,
-    sn: tx.prepaid?.sn || undefined,
+    sn: tx.prepaid?.sn || tx.free?.sn || undefined,
     message: tx.message || (tx.status === "SUCCESS" ? "Transaksi sukses" : tx.status === "PENDING" ? "Transaksi sedang diproses" : "Transaksi gagal"),
     price: tx.amount?.total,
   };
