@@ -447,14 +447,20 @@ export async function billerOpAction(fd: FormData) {
 }
 
 // ---------- Banners ----------
+// Catatan: jangan bedakan aksi lewat <button name="op" value="…">. Form yang punya
+// <input name="id"> membuat `form.id` mengembalikan elemen itu, sehingga React
+// tidak menyertakan nilai tombol submitter ke FormData. Pakai input hidden "op"
+// per form, atau formAction ke server action terpisah seperti di bawah.
+export async function deleteBannerAction(fd: FormData) {
+  await requireAdmin();
+  await db.banner.delete({ where: { id: str(fd, "id") } });
+  revalidatePath("/");
+  back("/admin/banners", "Banner dihapus");
+}
+
 export async function saveBannerAction(fd: FormData) {
   await requireAdmin();
   const id = str(fd, "id");
-  if (str(fd, "op") === "delete") {
-    await db.banner.delete({ where: { id } });
-    revalidatePath("/");
-    back("/admin/banners", "Banner dihapus");
-  }
   const data = {
     title: str(fd, "title"),
     subtitle: str(fd, "subtitle") || null,

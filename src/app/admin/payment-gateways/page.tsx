@@ -100,16 +100,19 @@ export default async function AdminGateways({ searchParams }: { searchParams: Fl
               <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
                 <form action={gatewayOpAction}>
                   <input type="hidden" name="id" value={g.id} />
-                  <button name="op" value="test" className="btn-ghost !py-1.5 text-sm"><PlugZap className="h-4 w-4" /> Tes koneksi</button>
+                  <input type="hidden" name="op" value="test" />
+                  <button className="btn-ghost !py-1.5 text-sm"><PlugZap className="h-4 w-4" /> Tes koneksi</button>
                 </form>
                 <form action={gatewayOpAction}>
                   <input type="hidden" name="id" value={g.id} />
-                  <button name="op" value="useForAll" className="btn-ghost !py-1.5 text-sm">Pakai untuk semua metode</button>
+                  <input type="hidden" name="op" value="useForAll" />
+                  <button className="btn-ghost !py-1.5 text-sm">Pakai untuk semua metode</button>
                 </form>
                 {g._count.methods === 0 && g._count.orders === 0 && (
                   <form action={gatewayOpAction} className="ml-auto">
                     <input type="hidden" name="id" value={g.id} />
-                    <button name="op" value="delete" className="btn-danger !py-1.5 text-sm"><Trash2 className="h-4 w-4" /> Hapus</button>
+                    <input type="hidden" name="op" value="delete" />
+                    <button className="btn-danger !py-1.5 text-sm"><Trash2 className="h-4 w-4" /> Hapus</button>
                   </form>
                 )}
               </div>

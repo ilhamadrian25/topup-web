@@ -101,20 +101,23 @@ export default async function AdminBillers({ searchParams }: { searchParams: Fla
               <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
                 <form action={billerOpAction}>
                   <input type="hidden" name="id" value={a.id} />
-                  <button name="op" value="test" className="btn-ghost !py-1.5 text-sm"><PlugZap className="h-4 w-4" /> Tes koneksi</button>
+                  <input type="hidden" name="op" value="test" />
+                  <button className="btn-ghost !py-1.5 text-sm"><PlugZap className="h-4 w-4" /> Tes koneksi</button>
                 </form>
                 <form action={billerOpAction}>
                   <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="op" value={a.isActive ? "deactivate" : "activate"} />
                   {a.isActive ? (
-                    <button name="op" value="deactivate" className="btn-ghost !py-1.5 text-sm"><PowerOff className="h-4 w-4" /> Nonaktifkan</button>
+                    <button className="btn-ghost !py-1.5 text-sm"><PowerOff className="h-4 w-4" /> Nonaktifkan</button>
                   ) : (
-                    <button name="op" value="activate" className="btn-ghost !py-1.5 text-sm"><Power className="h-4 w-4" /> Jadikan biller aktif</button>
+                    <button className="btn-ghost !py-1.5 text-sm"><Power className="h-4 w-4" /> Jadikan biller aktif</button>
                   )}
                 </form>
                 {!a.isActive && a._count.orders === 0 && (
                   <form action={billerOpAction} className="ml-auto">
                     <input type="hidden" name="id" value={a.id} />
-                    <button name="op" value="delete" className="btn-danger !py-1.5 text-sm"><Trash2 className="h-4 w-4" /> Hapus</button>
+                    <input type="hidden" name="op" value="delete" />
+                    <button className="btn-danger !py-1.5 text-sm"><Trash2 className="h-4 w-4" /> Hapus</button>
                   </form>
                 )}
               </div>
