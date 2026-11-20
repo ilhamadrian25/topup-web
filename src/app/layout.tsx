@@ -9,6 +9,7 @@ import { getSettings } from "@/lib/settings";
 import { db } from "@/lib/db";
 import { PayLogo } from "@/components/PayLogo";
 import { SiteHeader } from "@/components/SiteHeader";
+import { OpenOrderBanner } from "@/components/RecentOrders";
 import { siteUrl } from "@/lib/seo";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta" });
@@ -44,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <Suspense>
           <SiteHeader storeName={settings.storeName} logoUrl={settings.logoUrl} session={session ? { name: session.name, role: session.role } : null} />
         </Suspense>
+        <OpenOrderBanner />
         <main className="flex-1">{children}</main>
         <footer className="mt-16 border-t border-line bg-surface">
           <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 text-sm sm:grid-cols-2 lg:grid-cols-4">

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { RecentOrders } from "@/components/RecentOrders";
 
 export const metadata = {
   title: "Cek Status Transaksi Top Up",
@@ -26,6 +27,7 @@ export default async function CekTransaksi({ searchParams }: { searchParams: Pro
         {sp.e && <p className="text-sm text-danger">Invoice tidak ditemukan.</p>}
         <button className="btn-primary w-full">Cek Status</button>
       </form>
+      <RecentOrders />
     </div>
   );
 }

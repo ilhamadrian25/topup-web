@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { rupiah } from "@/lib/format";
 import { PayLogo } from "@/components/PayLogo";
 import type { InputField } from "@/lib/types";
+import { saveRecentOrder } from "@/lib/recent-orders";
 
 type Product = { id: string; name: string; price: number; normalPrice: number; memberPrice: number | null; available: boolean };
 type Method = {
@@ -124,6 +125,20 @@ export function OrderForm(props: {
     }).catch(() => null);
     const j = await res?.json().catch(() => null);
     if (res?.ok && j?.invoice) {
+      // Simpan dulu di browser: kalau tab tertutup sebelum invoice terbuka,
+      // pesanan tetap muncul di Cek Transaksi. Halaman invoice melengkapinya.
+      const now = new Date();
+      saveRecentOrder({
+        invoice: j.invoice,
+        gameName: props.gameName,
+        gameSlug: props.gameSlug,
+        productName: product.name,
+        total: product.price + fee(product.price, method),
+        paymentStatus: "UNPAID",
+        fulfillmentStatus: "WAITING",
+        expiresAt: new Date(now.getTime() + 60 * 60_000).toISOString(),
+        createdAt: now.toISOString(),
+      });
       router.push(`/invoice/${j.invoice}`);
       return;
     }

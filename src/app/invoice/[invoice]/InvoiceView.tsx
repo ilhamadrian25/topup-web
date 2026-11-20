@@ -7,6 +7,7 @@ import { dateTime, maskPhone, rupiah } from "@/lib/format";
 import type { InputField, PaymentData } from "@/lib/types";
 import type { PublicOrder } from "@/lib/orders";
 import { FulfillmentBadge, PaymentBadge } from "@/components/StatusBadge";
+import { saveRecentOrder, toRecentOrder } from "@/lib/recent-orders";
 
 type O = Omit<PublicOrder, "expiresAt" | "paidAt" | "fulfilledAt" | "createdAt"> & {
   expiresAt: string;
@@ -58,6 +59,11 @@ export function InvoiceView({ initial, qrSvg, mockPayment }: { initial: O; qrSvg
     const r = await fetch(`/api/orders/${o.invoice}`, { cache: "no-store" }).catch(() => null);
     if (r?.ok) setO(await r.json());
   }, [o.invoice]);
+
+  // Riwayat di browser: tiap kali invoice dibuka / statusnya berubah.
+  useEffect(() => {
+    saveRecentOrder(toRecentOrder(o));
+  }, [o]);
 
   useEffect(() => {
     if (final) return;
