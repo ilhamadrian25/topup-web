@@ -5,10 +5,12 @@ export type StoreSettings = {
   /** URL logo toko (kosong = logo bawaan). */
   logoUrl: string;
   tagline: string;
-  /** Margin default (basis poin) saat sync produk baru: 500 = 5%. */
+  /** Markup default (basis poin) di atas modal untuk harga jual biasa: 500 = 5%. */
   defaultMarginBps: number;
-  /** Diskon member dari harga jual (basis poin). 0 = tanpa harga member. */
-  memberDiscountBps: number;
+  /** Markup member default (basis poin) di atas modal untuk harga member login. */
+  defaultMemberMarginBps: number;
+  /** Interval sync produk otomatis dari biller (menit). 0 = mati. */
+  autoSyncMinutes: number;
   whatsappCs: string;
   /** Kontak usaha — ditampilkan di /contact, footer, S&K (syarat verifikasi payment gateway). */
   contactEmail: string;
@@ -23,7 +25,8 @@ const DEFAULTS: StoreSettings = {
   logoUrl: "",
   tagline: "Top up game & voucher murah, cepat, otomatis 24 jam",
   defaultMarginBps: 500,
-  memberDiscountBps: 100,
+  defaultMemberMarginBps: 400,
+  autoSyncMinutes: 15,
   whatsappCs: "",
   contactEmail: "",
   contactPhone: "",
@@ -51,20 +54,30 @@ export async function saveSettings(patch: Partial<StoreSettings>) {
 }
 
 export type Margin = { bps: number; flat: number };
+/** Markup efektif: harga jual biasa + harga member. */
+export type Markups = { normal: Margin; member: Margin };
 
-/** Harga jual = modal + margin persen + margin tetap, dibulatkan ke atas ke kelipatan 100. */
+export type CategoryMarkupFields = { marginBps: number | null; marginFlat: number; memberMarginBps: number | null; memberMarginFlat: number };
+
+/** Harga = modal + markup persen + markup tetap, dibulatkan ke atas ke kelipatan 100. */
 export function applyMargin(basePrice: number, marginBps: number, marginFlat = 0): number {
   return Math.ceil(((basePrice * (10000 + marginBps)) / 10000 + marginFlat) / 100) * 100;
 }
 
-/** Harga member = harga jual − diskon member (dibulatkan ke bawah); null bila tidak di atas modal. */
-export function memberPriceFor(price: number, basePrice: number, memberDiscountBps: number): number | null {
-  if (memberDiscountBps <= 0) return null;
-  const mp = Math.floor((price * (10000 - memberDiscountBps)) / 10000 / 100) * 100;
-  return mp > basePrice ? mp : null;
+/** Markup efektif kategori: nilai persen kategori (null = default toko) + nilai tetap kategori. */
+export function categoryMarkups(cat: CategoryMarkupFields, s: Pick<StoreSettings, "defaultMarginBps" | "defaultMemberMarginBps">): Markups {
+  return {
+    normal: { bps: cat.marginBps ?? s.defaultMarginBps, flat: cat.marginFlat },
+    member: { bps: cat.memberMarginBps ?? s.defaultMemberMarginBps, flat: cat.memberMarginFlat },
+  };
 }
 
-/** Margin efektif kategori: marginBps kategori (null = default toko) + marginFlat kategori. */
-export function categoryMargin(cat: { marginBps: number | null; marginFlat: number }, defaultMarginBps: number): Margin {
-  return { bps: cat.marginBps ?? defaultMarginBps, flat: cat.marginFlat };
+/**
+ * Harga jual & harga member dari modal. Harga member null (= sama dengan harga biasa)
+ * bila hasil markup member tidak lebih murah dari harga biasa.
+ */
+export function pricesFor(basePrice: number, m: Markups): { price: number; memberPrice: number | null } {
+  const price = applyMargin(basePrice, m.normal.bps, m.normal.flat);
+  const mp = applyMargin(basePrice, m.member.bps, m.member.flat);
+  return { price, memberPrice: mp < price ? mp : null };
 }

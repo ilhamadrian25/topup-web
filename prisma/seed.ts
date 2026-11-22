@@ -155,7 +155,7 @@ async function main() {
     create: { email, name: "Admin", role: "ADMIN", passwordHash: await bcrypt.hash(pw, 10) },
   });
 
-  const report = await syncProducts(db, new MockBiller(), { marginBps: 500, memberDiscountBps: 100 });
+  const report = await syncProducts(db, new MockBiller(), { defaultMarginBps: 500, defaultMemberMarginBps: 400 });
   console.log("Seed selesai.", { admin: email, sync: { created: report.created, updated: report.updated } });
 }
 

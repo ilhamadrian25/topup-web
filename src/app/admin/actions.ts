@@ -5,13 +5,14 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
-import { activeBiller, billerAdapter, BILLER_PROVIDERS } from "@/lib/biller";
-import { syncProducts } from "@/lib/catalog";
+import { billerAdapter, BILLER_PROVIDERS } from "@/lib/biller";
+import { repriceFromBase } from "@/lib/catalog";
+import { runProductSync, syncSummary } from "@/lib/product-sync";
 import { markOrderPaid, markRefunded, retryFulfillment, syncGatewayPayment, OrderError } from "@/lib/orders";
 import { gatewayAdapter, PROVIDERS } from "@/lib/payment";
 import { decryptJson, encryptJson } from "@/lib/secrets";
 import type { BillerProvider, GatewayProvider, PaymentGroup } from "@prisma/client";
-import { applyMargin, categoryMargin, getSettings, memberPriceFor, saveSettings } from "@/lib/settings";
+import { getSettings, saveSettings } from "@/lib/settings";
 import type { InputField } from "@/lib/types";
 import { imageFromForm, UploadError } from "@/lib/storage";
 
@@ -62,12 +63,9 @@ export async function orderAction(fd: FormData) {
 // ---------- Catalog sync ----------
 export async function syncAction() {
   await requireAdmin();
-  const s = await getSettings();
   let msg: string;
   try {
-    const r = await syncProducts(db, (await activeBiller()).adapter, { marginBps: s.defaultMarginBps, memberDiscountBps: s.memberDiscountBps });
-    msg = `Sync selesai: ${r.created} baru, ${r.updated} diperbarui, ${r.repriced.length} harga dinaikkan, ${r.unavailable} tidak tersedia`;
-    if (r.unknownBrands.length) msg += `. Brand belum punya game: ${r.unknownBrands.join(", ")}`;
+    msg = "Sync selesai: " + syncSummary(await runProductSync("manual"));
   } catch (e) {
     back("/admin/settings", "Sync gagal: " + String(e), "err");
   }
@@ -78,6 +76,11 @@ export async function syncAction() {
 export async function settingsAction(fd: FormData) {
   await requireAdmin();
   const logoUrl = await image(fd, "logoUrl", "store", "/admin/settings");
+  const before = await getSettings();
+  const markups = {
+    defaultMarginBps: Math.max(0, int(fd, "defaultMarginBps") ?? 0),
+    defaultMemberMarginBps: Math.max(0, int(fd, "defaultMemberMarginBps") ?? 0),
+  };
   await saveSettings({
     logoUrl: logoUrl ?? "",
     storeName: str(fd, "storeName") || "Top Up",
@@ -87,11 +90,14 @@ export async function settingsAction(fd: FormData) {
     contactPhone: str(fd, "contactPhone"),
     businessName: str(fd, "businessName"),
     businessAddress: str(fd, "businessAddress"),
-    defaultMarginBps: Math.max(0, int(fd, "defaultMarginBps") ?? 0),
-    memberDiscountBps: Math.max(0, int(fd, "memberDiscountBps") ?? 0),
+    ...markups,
+    autoSyncMinutes: Math.max(0, int(fd, "autoSyncMinutes") ?? 0),
   });
+  let msg = "Pengaturan disimpan";
+  if (markups.defaultMarginBps !== before.defaultMarginBps || markups.defaultMemberMarginBps !== before.defaultMemberMarginBps)
+    msg += `. Harga ${await repriceFromBase(db, markups)} produk dihitung ulang`;
   revalidatePath("/", "layout");
-  back("/admin/settings", "Pengaturan disimpan");
+  back("/admin/settings", msg);
 }
 
 // ---------- Games ----------
@@ -157,82 +163,36 @@ export async function saveProductsAction(fd: FormData) {
   await requireAdmin();
   const gameId = str(fd, "gameId");
   const ids = fd.getAll("pid").map(String);
-  const errors: string[] = [];
-  const updates = ids.map((pid) => {
-    const price = int(fd, `price_${pid}`) ?? 0;
-    const mp = int(fd, `member_${pid}`);
-    return { pid, price, memberPrice: mp && mp > 0 ? mp : null, name: str(fd, `name_${pid}`), isActive: bool(fd, `active_${pid}`), sortOrder: int(fd, `sort_${pid}`) ?? 0 };
-  });
-  const products = await db.product.findMany({ where: { id: { in: ids }, gameId } });
-  const byId = new Map(products.map((p) => [p.id, p]));
-  for (const u of updates) {
-    const p = byId.get(u.pid);
-    if (!p) continue;
-    if (u.price <= 0) errors.push(`${p.name}: harga harus > 0`);
-    else if (u.price < p.basePrice) errors.push(`${p.name}: harga jual di bawah modal`);
-    if (u.memberPrice != null && u.memberPrice < p.basePrice) errors.push(`${p.name}: harga member di bawah modal`);
-  }
-  if (errors.length) back(`/admin/games/${gameId}`, errors.slice(0, 3).join("; "), "err");
+  // Harga jual & member tidak diedit di sini: selalu modal + markup kategori (lihat Pengaturan).
   await db.$transaction(
-    updates
-      .filter((u) => byId.has(u.pid))
-      .map((u) =>
-        db.product.update({
-          where: { id: u.pid },
-          data: { price: u.price, memberPrice: u.memberPrice, name: u.name || undefined, isActive: u.isActive, sortOrder: u.sortOrder },
-        }),
-      ),
+    ids.map((pid) =>
+      db.product.updateMany({
+        where: { id: pid, gameId },
+        data: { name: str(fd, `name_${pid}`) || undefined, isActive: bool(fd, `active_${pid}`), sortOrder: int(fd, `sort_${pid}`) ?? 0 },
+      }),
+    ),
   );
   revalidatePath(`/games`);
   back(`/admin/games/${gameId}`, "Produk disimpan");
 }
 
-/** Hitung ulang harga jual & member dari modal untuk sekumpulan produk. */
-async function reprice(where: { gameId: string } | { game: { categoryId: string } }, bps: number, flat: number) {
-  const s = await getSettings();
-  const products = await db.product.findMany({ where });
-  await db.$transaction(
-    products.map((p) => {
-      const price = applyMargin(p.basePrice, bps, flat);
-      return db.product.update({ where: { id: p.id }, data: { price, memberPrice: memberPriceFor(price, p.basePrice, s.memberDiscountBps) } });
-    }),
-  );
-  revalidatePath("/games", "layout");
-  return products.length;
-}
-
-const marginLabel = (bps: number, flat: number) =>
-  [bps ? `${bps / 100}%` : null, flat ? `Rp ${flat.toLocaleString("id-ID")}` : null].filter(Boolean).join(" + ") || "0";
-
-export async function bulkMarginAction(fd: FormData) {
-  await requireAdmin();
-  const gameId = str(fd, "gameId");
-  const bps = int(fd, "marginBps");
-  const flat = int(fd, "marginFlat") ?? 0;
-  if (bps == null || bps < 0 || flat < 0) back(`/admin/games/${gameId}`, "Margin tidak valid", "err");
-  const n = await reprice({ gameId }, bps, flat);
-  back(`/admin/games/${gameId}`, `Harga ${n} produk dihitung ulang dengan margin ${marginLabel(bps, flat)}`);
-}
-
-// ---------- Category margins ----------
+// ---------- Category markups ----------
 export async function saveCategoryMarginsAction(fd: FormData) {
   await requireAdmin();
   const path = "/admin/settings";
   const ids = fd.getAll("cid").map(String);
-  const rows = ids.map((id) => ({ id, bps: int(fd, `bps_${id}`), flat: int(fd, `flat_${id}`) ?? 0 }));
-  if (rows.some((r) => (r.bps != null && r.bps < 0) || r.flat < 0)) back(path, "Margin tidak boleh negatif", "err");
-  await db.$transaction(rows.map((r) => db.category.update({ where: { id: r.id }, data: { marginBps: r.bps, marginFlat: r.flat } })));
-  back(path, "Margin kategori disimpan. Berlaku untuk produk baru saat sync — klik \"Terapkan ke harga\" untuk produk yang sudah ada.");
-}
-
-export async function repriceCategoryAction(fd: FormData) {
-  await requireAdmin();
-  const path = "/admin/settings";
-  const cat = await db.category.findUnique({ where: { id: str(fd, "cid") } });
-  if (!cat) back(path, "Kategori tidak ditemukan", "err");
-  const m = categoryMargin(cat, (await getSettings()).defaultMarginBps);
-  const n = await reprice({ game: { categoryId: cat.id } }, m.bps, m.flat);
-  back(path, `${cat.name}: harga ${n} produk dihitung ulang dengan margin ${marginLabel(m.bps, m.flat)}`);
+  const rows = ids.map((id) => ({
+    id,
+    marginBps: int(fd, `bps_${id}`),
+    marginFlat: int(fd, `flat_${id}`) ?? 0,
+    memberMarginBps: int(fd, `mbps_${id}`),
+    memberMarginFlat: int(fd, `mflat_${id}`) ?? 0,
+  }));
+  if (rows.some((r) => Object.values(r).some((v) => typeof v === "number" && v < 0))) back(path, "Markup tidak boleh negatif", "err");
+  await db.$transaction(rows.map(({ id, ...data }) => db.category.update({ where: { id }, data })));
+  const n = await repriceFromBase(db, await getSettings());
+  revalidatePath("/", "layout");
+  back(path, `Markup kategori disimpan, harga ${n} produk dihitung ulang`);
 }
 
 // ---------- Payment methods ----------

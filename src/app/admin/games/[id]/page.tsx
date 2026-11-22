@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { categoryMargin, getSettings } from "@/lib/settings";
+import { categoryMarkups, getSettings, type Margin } from "@/lib/settings";
 import { rupiah } from "@/lib/format";
 import { GameForm } from "../GameForm";
 import { Flash, type FlashSP } from "../../Flash";
-import { bulkMarginAction, saveProductsAction } from "../../actions";
+import { saveProductsAction } from "../../actions";
+
+const markupLabel = (m: Margin) => [m.bps ? `${m.bps / 100}%` : null, m.flat ? `Rp ${m.flat.toLocaleString("id-ID")}` : null].filter(Boolean).join(" + ") || "0";
 
 export default async function AdminGameDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: FlashSP }) {
   const { id } = await params;
@@ -15,7 +17,7 @@ export default async function AdminGameDetail({ params, searchParams }: { params
     getSettings(),
   ]);
   if (!game) notFound();
-  const margin = categoryMargin(game.category, settings.defaultMarginBps);
+  const m = categoryMarkups(game.category, settings);
 
   return (
     <div className="space-y-6">
@@ -27,20 +29,12 @@ export default async function AdminGameDetail({ params, searchParams }: { params
       <GameForm game={game} categories={categories} />
 
       <div>
-        <div className="mb-3 flex flex-wrap items-end gap-3">
+        <div className="mb-3">
           <h2 className="text-lg font-bold">Produk ({game.products.length})</h2>
-          <form action={bulkMarginAction} className="ml-auto flex items-end gap-2">
-            <input type="hidden" name="gameId" value={game.id} />
-            <div>
-              <label className="label" htmlFor="marginBps">Set margin semua (bps, 500 = 5%)</label>
-              <input id="marginBps" name="marginBps" type="number" min={0} defaultValue={margin.bps} className="input !w-32 !py-1.5" />
-            </div>
-            <div>
-              <label className="label" htmlFor="marginFlat">+ Rp tetap</label>
-              <input id="marginFlat" name="marginFlat" type="number" min={0} step={100} defaultValue={margin.flat} className="input !w-28 !py-1.5" />
-            </div>
-            <button className="btn-ghost !py-1.5">Terapkan</button>
-          </form>
+          <p className="mt-1 text-sm text-muted">
+            Harga otomatis = modal Payterra + markup kategori <b>{game.category.name}</b>: biasa {markupLabel(m.normal)}, member{" "}
+            {markupLabel(m.member)}. Ubah markup di <Link href="/admin/settings" className="text-accent hover:underline">Pengaturan</Link>.
+          </p>
         </div>
         {game.products.length === 0 ? (
           <p className="card p-6 text-sm text-muted">
@@ -68,9 +62,12 @@ export default async function AdminGameDetail({ params, searchParams }: { params
                       </td>
                       <td className="font-mono text-xs">{p.billerProductCode}</td>
                       <td className="whitespace-nowrap">{rupiah(p.basePrice)}</td>
-                      <td><input name={`price_${p.id}`} type="number" defaultValue={p.price} className="input !w-28 !py-1.5" /></td>
-                      <td><input name={`member_${p.id}`} type="number" defaultValue={p.memberPrice ?? ""} placeholder="-" className="input !w-28 !py-1.5" /></td>
-                      <td className="whitespace-nowrap text-success">{rupiah(p.price - p.basePrice)}</td>
+                      <td className="whitespace-nowrap">{rupiah(p.price)}</td>
+                      <td className="whitespace-nowrap">{p.memberPrice != null ? rupiah(p.memberPrice) : "-"}</td>
+                      <td className="whitespace-nowrap text-success">
+                        {rupiah(p.price - p.basePrice)}
+                        {p.memberPrice != null && <div className="text-xs text-muted">member {rupiah(p.memberPrice - p.basePrice)}</div>}
+                      </td>
                       <td><input name={`sort_${p.id}`} type="number" defaultValue={p.sortOrder} className="input !w-16 !py-1.5" /></td>
                     </tr>
                   ))}

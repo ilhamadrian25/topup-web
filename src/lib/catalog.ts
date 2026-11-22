@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { BillerAdapter } from "./biller/types";
-import { applyMargin, categoryMargin, memberPriceFor } from "./settings";
+import { categoryMarkups, pricesFor, type StoreSettings } from "./settings";
 
 export type SyncReport = {
   created: number;
@@ -10,25 +10,18 @@ export type SyncReport = {
   unknownBrands: string[];
 };
 
+export type MarkupDefaults = Pick<StoreSettings, "defaultMarginBps" | "defaultMemberMarginBps">;
+
 /**
  * Tarik produk dari biller dan cocokkan ke Game lewat billerBrandCode.
- * - Produk baru: harga jual = modal + margin kategori (fallback margin default).
- * - Produk lama: harga jual admin dipertahankan, kecuali modal naik
- *   sampai >= harga jual (supaya tidak jual rugi) — dinaikkan ulang.
- * - Produk yang hilang dari biller: billerAvailable = false.
+ * Harga jual & harga member selalu = modal terbaru + markup kategori (markup biasa / markup member),
+ * jadi ikut naik/turun mengikuti harga Payterra. Produk yang hilang dari biller: billerAvailable = false.
+ * Baris yang tidak berubah tidak ditulis ulang (sync dijalankan berkala).
  */
-export async function syncProducts(
-  db: PrismaClient,
-  biller: BillerAdapter,
-  opts: { marginBps: number; memberDiscountBps: number },
-): Promise<SyncReport> {
+export async function syncProducts(db: PrismaClient, biller: BillerAdapter, defaults: MarkupDefaults): Promise<SyncReport> {
   const [items, games] = await Promise.all([biller.listProducts(), db.game.findMany({ include: { category: true } })]);
   const gameByBrand = new Map(games.map((g) => [g.billerBrandCode, g]));
   const existing = new Map((await db.product.findMany()).map((p) => [p.billerProductCode, p]));
-  const priceFor = (basePrice: number, game: (typeof games)[number]) => {
-    const m = categoryMargin(game.category, opts.marginBps);
-    return applyMargin(basePrice, m.bps, m.flat);
-  };
 
   const report: SyncReport = { created: 0, updated: 0, repriced: [], unavailable: 0, unknownBrands: [] };
   const seen = new Set<string>();
@@ -41,34 +34,20 @@ export async function syncProducts(
       continue;
     }
     seen.add(it.code);
+    const { price, memberPrice } = pricesFor(it.price, categoryMarkups(game.category, defaults));
     const cur = existing.get(it.code);
     if (!cur) {
-      const price = priceFor(it.price, game);
       await db.product.create({
-        data: {
-          gameId: game.id,
-          name: it.name,
-          billerProductCode: it.code,
-          basePrice: it.price,
-          price,
-          memberPrice: memberPriceFor(price, it.price, opts.memberDiscountBps),
-          billerAvailable: it.available,
-          sortOrder: i,
-        },
+        data: { gameId: game.id, name: it.name, billerProductCode: it.code, basePrice: it.price, price, memberPrice, billerAvailable: it.available, sortOrder: i },
       });
       report.created++;
       continue;
     }
-    let price = cur.price;
-    let mp = cur.memberPrice;
-    if (it.price >= cur.price) {
-      price = priceFor(it.price, game);
-      report.repriced.push({ code: it.code, oldPrice: cur.price, newPrice: price });
-    }
-    if (mp != null && mp <= it.price) mp = null;
+    if (price !== cur.price) report.repriced.push({ code: it.code, oldPrice: cur.price, newPrice: price });
+    if (price === cur.price && memberPrice === cur.memberPrice && it.price === cur.basePrice && it.available === cur.billerAvailable) continue;
     await db.product.update({
       where: { id: cur.id },
-      data: { basePrice: it.price, billerAvailable: it.available, price, memberPrice: mp },
+      data: { basePrice: it.price, billerAvailable: it.available, price, memberPrice },
     });
     report.updated++;
   }
@@ -80,4 +59,14 @@ export async function syncProducts(
   }
   report.unknownBrands = [...unknown];
   return report;
+}
+
+/** Hitung ulang harga semua produk dari modal yang tersimpan (tanpa memanggil biller), mis. setelah markup diubah. */
+export async function repriceFromBase(db: PrismaClient, defaults: MarkupDefaults, where: { game?: { categoryId: string } } = {}): Promise<number> {
+  const products = await db.product.findMany({ where, include: { game: { include: { category: true } } } });
+  const changed = products
+    .map((p) => ({ p, next: pricesFor(p.basePrice, categoryMarkups(p.game.category, defaults)) }))
+    .filter(({ p, next }) => next.price !== p.price || next.memberPrice !== p.memberPrice);
+  await db.$transaction(changed.map(({ p, next }) => db.product.update({ where: { id: p.id }, data: next })));
+  return changed.length;
 }

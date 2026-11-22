@@ -71,6 +71,10 @@ model Category {
   marginBps  Int?
   /// Margin tetap (Rp) ditambahkan di atas margin persen, mis. untuk saldo e-wallet.
   marginFlat Int    @default(0)
+  /// Markup member (basis poin) untuk harga member login. null = pakai markup member default toko.
+  memberMarginBps  Int?
+  /// Markup member tetap (Rp) di atas markup member persen.
+  memberMarginFlat Int    @default(0)
   games      Game[]
 }
 
